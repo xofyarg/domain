@@ -57,7 +57,7 @@
 
 pub use self::builder::{DnameBuilder, PushError, PushNameError};
 pub use self::chain::{Chain, ChainIter, LongChainError, UncertainChainIter};
-pub use self::dname::{Dname, DnameError, DnameParseError, DnameBytesError};
+pub use self::dname::{Dname, DnameError, DnameParseError, DnameOctetsError};
 pub use self::label::{Label, LabelTypeError, LongLabelError,
                       SplitLabelError};
 pub use self::parsed::{ParsedDname, ParsedDnameIter, ParsedDnameError,

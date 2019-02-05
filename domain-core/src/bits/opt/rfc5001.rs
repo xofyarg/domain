@@ -38,7 +38,7 @@ impl ParseAll for Nsid {
     type Err = ShortBuf;
 
     fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
-        parser.parse_bytes(len).map(Nsid::new)
+        parser.parse_octets(len).map(Nsid::new)
     }
 }
 

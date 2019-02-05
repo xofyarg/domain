@@ -2,10 +2,11 @@
 //!
 //! This is a private module. Its public types are re-exported by the parent.
 
-use std::{fmt, str};
-use bytes::BufMut;
-use ::bits::compose::Compose;
-use ::master::scan::{CharSource, Scan, Scanner, ScanError, Symbol};
+use std::{fmt, hash, str};
+use bytes::{BufMut, Bytes};
+use crate::bits::compose::Compose;
+use crate::bits::octets::Octets;
+use crate::master::scan::{CharSource, Scan, Scanner, ScanError, Symbol};
 use super::builder::{DnameBuilder, PushError, PushNameError};
 use super::chain::{Chain, LongChainError};
 use super::dname::Dname;
@@ -19,23 +20,78 @@ use super::traits::{ToDname, ToLabelIter};
 ///
 /// This type is helpful when reading a domain name from some source where it
 /// may end up being absolute or not.
-#[derive(Clone, Eq, Hash, PartialEq)]
-pub enum UncertainDname {
-    Absolute(Dname),
-    Relative(RelativeDname),
+#[derive(Clone)]
+pub enum UncertainDname<O=Bytes> {
+    Absolute(Dname<O>),
+    Relative(RelativeDname<O>),
 }
 
-impl UncertainDname {
+impl<O> UncertainDname<O> {
     /// Creates a new uncertain domain name from an absolute domain name.
-    pub fn absolute(name: Dname) -> Self {
+    pub fn absolute(name: Dname<O>) -> Self {
         UncertainDname::Absolute(name)
     }
 
     /// Creates a new uncertain domain name from a relative domain name.
-    pub fn relative(name: RelativeDname) -> Self {
+    pub fn relative(name: RelativeDname<O>) -> Self {
         UncertainDname::Relative(name)
     }
 
+    /// Returns whether the name is absolute.
+    pub fn is_absolute(&self) -> bool {
+        match *self {
+            UncertainDname::Absolute(_) => true,
+            UncertainDname::Relative(_) => false,
+        }
+    }
+
+    /// Returns whether the name is relative.
+    pub fn is_relative(&self) -> bool {
+        !self.is_absolute()
+    }
+
+    /// Returns a reference to an absolute name, if this name is absolute.
+    pub fn as_absolute(&self) -> Option<&Dname<O>> {
+        match *self {
+            UncertainDname::Absolute(ref name) => Some(name),
+            _ => None
+        }
+    }
+
+    /// Returns a reference to a relative name, if the name is relative.
+    pub fn as_relative(&self) -> Option<&RelativeDname<O>> {
+        match *self {
+            UncertainDname::Relative(ref name) => Some(name),
+            _ => None,
+        }
+    }
+
+    /// Converts the name into an absolute name if it is absolute.
+    ///
+    /// Otherwise, returns itself as the error.
+    pub fn try_into_absolute(self) -> Result<Dname<O>, Self> {
+        if let UncertainDname::Absolute(name) = self {
+            Ok(name)
+        }
+        else {
+            Err(self)
+        }
+    }
+
+    /// Converts the name into a relative name if it is relative.
+    ///
+    /// Otherwise just returns itself as the error.
+    pub fn try_into_relative(self) -> Result<RelativeDname<O>, Self> {
+        if let UncertainDname::Relative(name) = self {
+            Ok(name)
+        }
+        else {
+            Err(self)
+        }
+    }
+}
+
+impl<O: Octets> UncertainDname<O> {
     /// Creates a new uncertain domain name containing the root label only.
     pub fn root() -> Self {
         UncertainDname::Absolute(Dname::root())
@@ -46,6 +102,27 @@ impl UncertainDname {
         UncertainDname::Relative(RelativeDname::empty())
     }
 
+    /// Makes an uncertain name absolute by chaining on a suffix if needed.
+    ///
+    /// The method converts the uncertain name into a chain that will
+    /// be absolute. If the name is already absolute, the chain will be the
+    /// name itself. If it is relative, if will be the concatenation of the
+    /// name and `suffix`.
+    pub fn chain<S: ToDname>(self, suffix: S)
+                             -> Result<Chain<Self, S>, LongChainError> {
+        Chain::new_uncertain(self, suffix)
+    }
+
+    /// Returns a byte slice with the raw content of the name.
+    pub fn as_slice(&self) -> &[u8] {
+        match *self {
+            UncertainDname::Absolute(ref name) => name.as_slice(),
+            UncertainDname::Relative(ref name) => name.as_slice(),
+        }
+    }
+}
+
+impl UncertainDname<Bytes> {
     /// Creates a domain name from a sequence of characters.
     ///
     /// The sequence must result in a domain name in master format
@@ -96,59 +173,6 @@ impl UncertainDname {
         }
     }
 
-    /// Returns whether the name is absolute.
-    pub fn is_absolute(&self) -> bool {
-        match *self {
-            UncertainDname::Absolute(_) => true,
-            UncertainDname::Relative(_) => false,
-        }
-    }
-
-    /// Returns whether the name is relative.
-    pub fn is_relative(&self) -> bool {
-        !self.is_absolute()
-    }
-
-    /// Returns a reference to an absolute name, if this name is absolute.
-    pub fn as_absolute(&self) -> Option<&Dname> {
-        match *self {
-            UncertainDname::Absolute(ref name) => Some(name),
-            _ => None
-        }
-    }
-
-    /// Returns a reference to a relative name, if the name is relative.
-    pub fn as_relative(&self) -> Option<&RelativeDname> {
-        match *self {
-            UncertainDname::Relative(ref name) => Some(name),
-            _ => None,
-        }
-    }
-
-    /// Converts the name into an absolute name if it is absolute.
-    ///
-    /// Otherwise, returns itself as the error.
-    pub fn try_into_absolute(self) -> Result<Dname, Self> {
-        if let UncertainDname::Absolute(name) = self {
-            Ok(name)
-        }
-        else {
-            Err(self)
-        }
-    }
-
-    /// Converts the name into a relative name if it is relative.
-    ///
-    /// Otherwise just returns itself as the error.
-    pub fn try_into_relative(self) -> Result<RelativeDname, Self> {
-        if let UncertainDname::Relative(name) = self {
-            Ok(name)
-        }
-        else {
-            Err(self)
-        }
-    }
-
     /// Converts the name into an absolute name.
     ///
     /// If the name is relative, appends the root label to it using
@@ -156,29 +180,12 @@ impl UncertainDname {
     ///
     /// [`RelativeDname::into_absolute`]:
     ///     struct.RelativeDname.html#method.into_absolute
-    pub fn into_absolute(self) -> Dname {
+    pub fn into_absolute(self) -> Dname<Bytes> {
         match self {
-            UncertainDname::Absolute(name) => name,
+            UncertainDname::Absolute(name) => unsafe {
+                Dname::from_octets_unchecked(name.into_bytes())
+            }
             UncertainDname::Relative(name) => name.into_absolute()
-        }
-    }
-
-    /// Makes an uncertain name absolute by chaining on a suffix if needed.
-    ///
-    /// The method converts the uncertain name into a chain that will
-    /// be absolute. If the name is already absolute, the chain will be the
-    /// name itself. If it is relative, if will be the concatenation of the
-    /// name and `suffix`.
-    pub fn chain<S: ToDname>(self, suffix: S)
-                             -> Result<Chain<Self, S>, LongChainError> {
-        Chain::new_uncertain(self, suffix)
-    }
-
-    /// Returns a byte slice with the raw content of the name.
-    pub fn as_slice(&self) -> &[u8] {
-        match *self {
-            UncertainDname::Absolute(ref name) => name.as_slice(),
-            UncertainDname::Relative(ref name) => name.as_slice(),
         }
     }
 }
@@ -186,7 +193,7 @@ impl UncertainDname {
 
 //--- Compose
 
-impl Compose for UncertainDname {
+impl<O: Octets> Compose for UncertainDname<O> {
     fn compose_len(&self) -> usize {
         match *self {
             UncertainDname::Absolute(ref name) => name.compose_len(),
@@ -205,14 +212,14 @@ impl Compose for UncertainDname {
 
 //--- From
 
-impl From<Dname> for UncertainDname {
-    fn from(name: Dname) -> Self {
+impl<O> From<Dname<O>> for UncertainDname<O> {
+    fn from(name: Dname<O>) -> Self {
         Self::absolute(name)
     }
 }
 
-impl From<RelativeDname> for UncertainDname {
-    fn from(name: RelativeDname) -> Self {
+impl<O> From<RelativeDname<O>> for UncertainDname<O> {
+    fn from(name: RelativeDname<O>) -> Self {
         Self::relative(name)
     }
 }
@@ -220,7 +227,7 @@ impl From<RelativeDname> for UncertainDname {
 
 //--- FromStr
 
-impl str::FromStr for UncertainDname {
+impl str::FromStr for UncertainDname<Bytes> {
     type Err = FromStrError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -231,7 +238,7 @@ impl str::FromStr for UncertainDname {
 
 //--- Scan
 
-impl Scan for UncertainDname {
+impl Scan for UncertainDname<Bytes> {
     fn scan<C: CharSource>(scanner: &mut Scanner<C>)
                            -> Result<Self, ScanError> {
         if let Ok(()) = scanner.skip_literal(".") {
@@ -285,7 +292,7 @@ impl Scan for UncertainDname {
 
 //--- ToLabelIter
 
-impl<'a> ToLabelIter<'a> for UncertainDname {
+impl<'a, O: Octets> ToLabelIter<'a> for UncertainDname<O> {
     type LabelIter = DnameIter<'a>;
 
     fn iter_labels(&'a self) -> Self::LabelIter {
@@ -297,9 +304,39 @@ impl<'a> ToLabelIter<'a> for UncertainDname {
 }
 
 
+//--- PartialEq and Eq
+
+impl<OS, OO> PartialEq<UncertainDname<OO>> for UncertainDname<OS>
+where OS: Octets, OO: Octets {
+    fn eq(&self, other: &UncertainDname<OO>) -> bool {
+        use self::UncertainDname::*;
+
+        match (self, other) {
+            (&Absolute(ref left), &Absolute(ref right)) => left.eq(right),
+            (&Relative(ref left), &Relative(ref right)) => left.eq(right),
+            _ => false
+        }
+    }
+}
+
+impl<O: Octets> Eq for UncertainDname<O> { }
+
+
+//--- Hash
+
+impl<O: Octets> hash::Hash for UncertainDname<O> {
+    fn hash<H: hash::Hasher>(&self, state: &mut H) {
+        match *self {
+            UncertainDname::Absolute(ref inner) => inner.hash(state),
+            UncertainDname::Relative(ref inner) => inner.hash(state),
+        }
+    }
+}
+
+
 //--- Display and Debug
 
-impl fmt::Display for UncertainDname {
+impl<O: Octets> fmt::Display for UncertainDname<O> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             UncertainDname::Absolute(ref name) => name.fmt(f),
@@ -308,7 +345,7 @@ impl fmt::Display for UncertainDname {
     }
 }
 
-impl fmt::Debug for UncertainDname {
+impl<O: Octets> fmt::Debug for UncertainDname<O> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             UncertainDname::Absolute(ref name) => {

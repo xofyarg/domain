@@ -7,7 +7,7 @@
 use std::{fmt, ptr};
 use bytes::{BufMut, Bytes, BytesMut};
 use ::bits::compose::{Compose, Compress, Compressor};
-use ::bits::name::{Dname, DnameError, DnameBytesError, DnameParseError};
+use ::bits::name::{Dname, DnameError, DnameOctetsError, DnameParseError};
 use ::bits::parse::{Parse, ParseAll, ParseAllError, Parser, ShortBuf};
 use ::bits::rdata::RtypeRecordData;
 use ::bits::serial::Serial;
@@ -212,7 +212,7 @@ impl Rrsig {
 //--- ParseAll, Compose, and Compress
 
 impl ParseAll for Rrsig {
-    type Err = DnameBytesError;
+    type Err = DnameOctetsError;
 
     fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
         let start = parser.pos();
@@ -578,7 +578,7 @@ impl ParseAll for RtypeBitmap {
     type Err = RtypeBitmapError;
 
     fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
-        let bytes = parser.parse_bytes(len)?;
+        let bytes = parser.parse_octets(len)?;
         RtypeBitmap::from_bytes(bytes)
     }
 }

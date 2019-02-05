@@ -107,6 +107,7 @@ pub mod header;
 pub mod message;
 pub mod message_builder;
 pub mod name;
+pub mod octets;
 pub mod opt;
 pub mod parse;
 pub mod query;

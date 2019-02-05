@@ -3,7 +3,7 @@
 /// This is a private module. Its public traits are re-exported by the parent.
 
 use std::cmp;
-use bytes::BytesMut;
+use bytes::{Bytes, BytesMut};
 use ::bits::compose::{Compose, Compress};
 use super::chain::{Chain, LongChainError};
 use super::dname::Dname;
@@ -95,11 +95,11 @@ pub trait ToDname: Compose + Compress + for<'a> ToLabelIter<'a> {
     /// a new buffer and returns this buffer. If the implementing type can
     /// create a `Dname` more efficiently, then it should provide its
     /// own implementation.
-    fn to_name(&self) -> Dname {
+    fn to_name(&self) -> Dname<Bytes> {
         let mut bytes = BytesMut::with_capacity(self.compose_len());
         self.compose(&mut bytes);
         unsafe {
-            Dname::from_bytes_unchecked(bytes.freeze())
+            Dname::from_octets_unchecked(bytes.freeze())
         }
     }
 
@@ -188,11 +188,11 @@ pub trait ToRelativeDname: Compose + for<'a> ToLabelIter<'a> {
     /// a new buffer and returns this buffer. If the implementing type can
     /// create a `RelativeDname` more efficiently, then it should provide its
     /// own implementation.
-    fn to_name(&self) -> RelativeDname {
+    fn to_name(&self) -> RelativeDname<Bytes> {
         let mut bytes = BytesMut::with_capacity(self.compose_len());
         self.compose(&mut bytes);
         unsafe {
-            RelativeDname::from_bytes_unchecked(bytes.freeze())
+            RelativeDname::from_octets_unchecked(bytes.freeze())
         }
     }
 

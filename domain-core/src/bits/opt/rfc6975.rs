@@ -47,7 +47,7 @@ macro_rules! option_type {
 
             fn parse_all(parser: &mut Parser, len: usize)
                          -> Result<Self, Self::Err> {
-                parser.parse_bytes(len).map(Self::from_bytes)
+                parser.parse_octets(len).map(Self::from_bytes)
             }
         }
 

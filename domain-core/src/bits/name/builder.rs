@@ -226,7 +226,7 @@ impl DnameBuilder {
     /// [`end_label`]: #method.end_label
     pub fn finish(mut self) -> RelativeDname {
         self.end_label();
-        unsafe { RelativeDname::from_bytes_unchecked(self.bytes.freeze()) }
+        unsafe { RelativeDname::from_octets_unchecked(self.bytes.freeze()) }
     }
 
     /// Appends the root label to the name and returns it as a `Dname`.
@@ -247,7 +247,7 @@ impl DnameBuilder {
         else {
             self.ensure_capacity(1);
             self.bytes.put_u8(0);
-            Ok(unsafe { Dname::from_bytes_unchecked(self.bytes.freeze()) })
+            Ok(unsafe { Dname::from_octets_unchecked(self.bytes.freeze()) })
         }
     }
 
@@ -265,7 +265,7 @@ impl DnameBuilder {
         }
         self.ensure_capacity(origin.compose_len());
         origin.compose(&mut self.bytes);
-        Ok(unsafe { Dname::from_bytes_unchecked(self.bytes.freeze()) })
+        Ok(unsafe { Dname::from_octets_unchecked(self.bytes.freeze()) })
     }
 }
 

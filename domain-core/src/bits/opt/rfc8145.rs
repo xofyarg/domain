@@ -48,7 +48,7 @@ impl ParseAll for KeyTag {
             Err(ParseAllError::TrailingData)
         }
         else {
-            Ok(Self::new(parser.parse_bytes(len)?))
+            Ok(Self::new(parser.parse_octets(len)?))
         }
     }
 }

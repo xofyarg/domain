@@ -95,7 +95,7 @@ impl ParseAll for Opt {
     type Err = ShortBuf;
 
     fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
-        Self::from_bytes(parser.parse_bytes(len)?)
+        Self::from_bytes(parser.parse_octets(len)?)
     }
 }
 
@@ -463,7 +463,7 @@ impl OptData for UnknownOptData {
         parser: &mut Parser,
         len: usize
     ) -> Result<Option<Self>, Self::ParseErr> {
-        parser.parse_bytes(len)
+        parser.parse_octets(len)
             .map(|data| Some(Self::from_bytes(code, data)))
     }
 }

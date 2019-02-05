@@ -30,6 +30,7 @@ use ::master::scan::{BadSymbol, CharSource, Scan, Scanner, ScanError, Symbol,
                      SymbolError, SyntaxError};
 use super::compose::Compose;
 use super::parse::{ParseAll, ParseAllError, Parse, Parser, ShortBuf};
+use crate::bits::octets::Octets;
 
 
 //------------ CharStr -------------------------------------------------------
@@ -44,61 +45,72 @@ use super::parse::{ParseAll, ParseAllError, Parse, Parser, ShortBuf};
 /// As per [RFC 1035], character strings compare ignoring ASCII case.
 /// `CharStr`’s implementations of the `std::cmp` traits act accordingly.
 #[derive(Clone)]
-pub struct CharStr {
+pub struct CharStr<O=Bytes> {
     /// The underlying bytes slice.
-    inner: Bytes
+    octets: O
 }
 
 
 /// # Creation and Conversion
 ///
-impl CharStr {
+impl<O: Octets> CharStr<O> {
     /// Creates a new empty character string.
     pub fn empty() -> Self {
-        CharStr { inner: Bytes::from_static(b"") }
+        CharStr { octets: O::from_static(b"") }
     }
 
-    /// Creates a character string from a bytes value without length check.
+    /// Creates a character string from a octets without length check.
     ///
     /// As this can break the guarantees made by the type, it is unsafe.
-    unsafe fn from_bytes_unchecked(bytes: Bytes) -> Self {
-        CharStr { inner: bytes }
+    unsafe fn from_octets_unchecked(octets: O) -> Self {
+        CharStr { octets: octets }
     }
 
-    /// Creates a new character string from a bytes value.
+    /// Creates a new character string from some octets
     ///
-    /// Returns succesfully if the bytes slice can indeed be used as a
-    /// character string, i.e., it is not longer than 255 bytes.
-    pub fn from_bytes(bytes: Bytes) -> Result<Self, CharStrError> {
-        if bytes.len() > 255 { Err(CharStrError) }
-        else { Ok(unsafe { Self::from_bytes_unchecked(bytes) })}
+    /// Returns succesfully if the octets can indeed be used as a
+    /// character string, i.e., they are not longer than 255.
+    pub fn from_octets(octets: O) -> Result<Self, CharStrError> {
+        if octets.len() > 255 { Err(CharStrError) }
+        else { Ok(unsafe { Self::from_octets_unchecked(octets) })}
     }
 
-    /// Creates a new character string from a byte slice.
-    ///
-    /// The function will create a new bytes value and copy the slice’s
-    /// content.
-    ///
-    /// If the byte slice is longer than 255 bytes, the function will return
-    /// an error.
-    pub fn from_slice(slice: &[u8]) -> Result<Self, CharStrError> {
-        if slice.len() > 255 { Err(CharStrError) }
-        else { Ok(unsafe { Self::from_bytes_unchecked(slice.into()) })}
+    /// Converts the value into its underlying octets.
+    pub fn into_octets(self) -> O {
+        self.octets
     }
 
-    /// Converts the value into its underlying bytes value.
-    pub fn into_bytes(self) -> Bytes {
-        self.inner
-    }
-
-    /// Returns a reference to the underlying bytes value.
-    pub fn as_bytes(&self) -> &Bytes {
-        &self.inner
+    /// Returns a reference to the underlying octets.
+    pub fn as_octets(&self) -> &O {
+        &self.octets
     }
 
     /// Returns a reference to a byte slice of the character string’s data.
     pub fn as_slice(&self) -> &[u8] {
-        self.inner.as_ref()
+        self.octets.as_ref()
+    }
+
+    /// Displays a character string as a word in hexadecimal digits.
+    pub fn display_hex(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for ch in self.as_slice() {
+            write!(f, "{:02X}", ch)?;
+        }
+        Ok(())
+    }
+}
+
+impl CharStr<Bytes> {
+    /// Creates a new character string from some octets
+    ///
+    /// Returns succesfully if the octets can indeed be used as a
+    /// character string, i.e., they are not longer than 255.
+    pub fn from_bytes(bytes: Bytes) -> Result<Self, CharStrError> {
+        Self::from_octets(bytes)
+    }
+
+    /// Returns a reference to the underlying bytes value.
+    pub fn as_bytes(&self) -> &Bytes {
+        &self.octets
     }
 
     /// Attempts to make the character string mutable.
@@ -110,9 +122,9 @@ impl CharStr {
     /// See [`into_mut`](#method.into_mut) for a variation that copies the
     /// data if necessary.
     pub fn try_into_mut(self) -> Result<CharStrMut, Self> {
-        self.inner.try_mut()
-            .map(|b| unsafe { CharStrMut::from_bytes_unchecked(b) })
-            .map_err(|b| unsafe { CharStr::from_bytes_unchecked(b) })
+        self.octets.try_mut()
+            .map(|b| unsafe { CharStrMut::from_octets_unchecked(b) })
+            .map_err(|b| unsafe { CharStr::from_octets_unchecked(b) })
     }
 
     /// Provides a mutable version of the character string.
@@ -121,7 +133,7 @@ impl CharStr {
     /// the function will reuse the bytes value. Otherwise, it will create
     /// a new buffer and copy `self`’s content into it.
     pub fn into_mut(self) -> CharStrMut {
-        unsafe { CharStrMut::from_bytes_unchecked(self.inner.into()) }
+        unsafe { CharStrMut::from_octets_unchecked(self.octets.into()) }
     }
 
     /// Scans a character string given as a word of hexadecimal digits.
@@ -129,23 +141,15 @@ impl CharStr {
         scanner: &mut Scanner<C>
     ) -> Result<Self, ScanError> {
         scanner.scan_hex_word(|b| unsafe {
-            Ok(CharStr::from_bytes_unchecked(b))
+            Ok(CharStr::from_octets_unchecked(b))
         })
-    }
-
-    /// Displays a character string as a word in hexadecimal digits.
-    pub fn display_hex(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        for ch in self {
-            write!(f, "{:02X}", ch)?;
-        }
-        Ok(())
     }
 }
 
 
 //--- FromStr
 
-impl str::FromStr for CharStr {
+impl str::FromStr for CharStr<Bytes> {
     type Err = FromStrError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -163,35 +167,38 @@ impl str::FromStr for CharStr {
 
 //--- Parse, ParseAll, and Compose
 
-impl Parse for CharStr {
+impl<O: Octets> Parse<O> for CharStr<O> {
     type Err = ShortBuf;
 
-    fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
+    fn parse(parser: &mut Parser<O>) -> Result<Self, Self::Err> {
         let len = parser.parse_u8()? as usize;
-        parser.parse_bytes(len).map(|bytes| {
-            unsafe { Self::from_bytes_unchecked(bytes) }
+        parser.parse_octets(len).map(|bytes| {
+            unsafe { Self::from_octets_unchecked(bytes) }
         })
     }
 
-    fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
+    fn skip(parser: &mut Parser<O>) -> Result<(), Self::Err> {
         let len = parser.parse_u8()? as usize;
         parser.advance(len)
     }
 }
 
-impl ParseAll for CharStr {
+impl<O: Octets> ParseAll<O> for CharStr<O> {
     type Err = ParseAllError;
 
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+    fn parse_all(
+        parser: &mut Parser<O>,
+        len: usize
+    ) -> Result<Self, Self::Err> {
         let char_len = parser.parse_u8()? as usize;
         ParseAllError::check(char_len + 1, len)?;
-        parser.parse_bytes(char_len).map_err(Into::into).map(|bytes| {
-            unsafe { Self::from_bytes_unchecked(bytes) }
+        parser.parse_octets(char_len).map_err(Into::into).map(|bytes| {
+            unsafe { Self::from_octets_unchecked(bytes) }
         })
     }
 }
 
-impl Compose for CharStr {
+impl<O: Octets> Compose for CharStr<O> {
     fn compose_len(&self) -> usize {
         self.len() + 1
     }
@@ -205,7 +212,7 @@ impl Compose for CharStr {
 
 //--- Scan and Display
 
-impl Scan for CharStr {
+impl Scan for CharStr<Bytes> {
     fn scan<C: CharSource>(scanner: &mut Scanner<C>)
                            -> Result<Self, ScanError> {
         scanner.scan_byte_phrase(|res| {
@@ -213,15 +220,15 @@ impl Scan for CharStr {
                 Err(SyntaxError::LongCharStr)
             }
             else {
-                Ok(unsafe { CharStr::from_bytes_unchecked(res) })
+                Ok(unsafe { CharStr::from_octets_unchecked(res) })
             }
         })
     }
 }
 
-impl fmt::Display for CharStr {
+impl<O: Octets> fmt::Display for CharStr<O> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        for ch in &self.inner {
+        for &ch in self.as_slice() {
             fmt::Display::fmt(&Symbol::from_byte(ch), f)?
         }
         Ok(())
@@ -231,82 +238,82 @@ impl fmt::Display for CharStr {
 
 //--- Deref and AsRef
 
-impl ops::Deref for CharStr {
-    type Target = Bytes;
+impl<O> ops::Deref for CharStr<O> {
+    type Target = O;
 
     fn deref(&self) -> &Self::Target {
-        &self.inner
+        &self.octets
     }
 }
 
-impl AsRef<Bytes> for CharStr {
-    fn as_ref(&self) -> &Bytes {
-        &self.inner
+impl<O> AsRef<O> for CharStr<O> {
+    fn as_ref(&self) -> &O {
+        &self.octets
     }
 }
 
-impl AsRef<[u8]> for CharStr {
+impl<O: Octets> AsRef<[u8]> for CharStr<O> {
     fn as_ref(&self) -> &[u8] {
-        &self.inner
+        self.octets.as_ref()
     }
 }
 
 
 //--- IntoIterator
 
-impl IntoIterator for CharStr {
+impl IntoIterator for CharStr<Bytes> {
     type Item = u8;
     type IntoIter = ::bytes::buf::Iter<::std::io::Cursor<Bytes>>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.inner.into_iter()
+        self.octets.into_iter()
     }
 }
 
-impl<'a> IntoIterator for &'a CharStr {
+impl<'a> IntoIterator for &'a CharStr<Bytes> {
     type Item = u8;
     type IntoIter = ::bytes::buf::Iter<::std::io::Cursor<&'a Bytes>>;
 
     fn into_iter(self) -> Self::IntoIter {
-        (&self.inner).into_iter()
+        (&self.octets).into_iter()
     }
 }
 
 
 //--- PartialEq, Eq
 
-impl<T: AsRef<[u8]>> PartialEq<T> for CharStr {
+impl<T: AsRef<[u8]>, O: Octets> PartialEq<T> for CharStr<O> {
     fn eq(&self, other: &T) -> bool {
         self.as_slice().eq_ignore_ascii_case(other.as_ref())
     }
 }
 
-impl Eq for CharStr { }
+impl<O: Octets> Eq for CharStr<O> { }
 
 
 //--- PartialOrd, Ord
 
-impl<T: AsRef<[u8]>> PartialOrd<T> for CharStr {
+impl<T: AsRef<[u8]>, O: Octets> PartialOrd<T> for CharStr<O> {
     fn partial_cmp(&self, other: &T) -> Option<cmp::Ordering> {
-        self.iter().map(u8::to_ascii_lowercase)
+        self.as_slice().iter().map(u8::to_ascii_lowercase)
             .partial_cmp(other.as_ref().iter()
                               .map(u8::to_ascii_lowercase))
     }
 }
 
-impl Ord for CharStr {
+impl<O: Octets> Ord for CharStr<O> {
     fn cmp(&self, other: &Self) -> cmp::Ordering {
-        self.iter().map(u8::to_ascii_lowercase)
-            .cmp(other.iter().map(u8::to_ascii_lowercase))
+        self.as_slice().iter().map(u8::to_ascii_lowercase)
+            .cmp(other.as_slice().iter().map(u8::to_ascii_lowercase))
     }
 }
 
 
 //--- Hash
 
-impl hash::Hash for CharStr {
+impl<O: Octets> hash::Hash for CharStr<O> {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
-        self.iter().map(u8::to_ascii_lowercase)
+        self.as_slice().iter().map(u8::to_ascii_lowercase)
             .for_each(|ch| ch.hash(state))
     }
 }
@@ -314,7 +321,7 @@ impl hash::Hash for CharStr {
 
 //--- Debug
 
-impl fmt::Debug for CharStr {
+impl<O: Octets> fmt::Debug for CharStr<O> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         try!("CharStr(\"".fmt(f));
         try!(fmt::Display::fmt(self, f));
@@ -342,7 +349,7 @@ impl CharStrMut {
     ///
     /// Since the buffer may already be longer than it is allowed to be, this
     /// is unsafe.
-    unsafe fn from_bytes_unchecked(bytes: BytesMut) -> Self {
+    unsafe fn from_octets_unchecked(bytes: BytesMut) -> Self {
         CharStrMut { bytes }
     }
 
@@ -354,7 +361,7 @@ impl CharStrMut {
             Err(CharStrError)
         }
         else {
-            Ok(unsafe { Self::from_bytes_unchecked(bytes) })
+            Ok(unsafe { Self::from_octets_unchecked(bytes) })
         }
     }
 
@@ -364,7 +371,7 @@ impl CharStrMut {
     /// string.
     pub fn with_capacity(capacity: usize) -> Self {
         unsafe {
-            CharStrMut::from_bytes_unchecked(BytesMut::with_capacity(capacity))
+            CharStrMut::from_octets_unchecked(BytesMut::with_capacity(capacity))
         }
     }
 
@@ -390,7 +397,7 @@ impl CharStrMut {
 
     /// Turns the value into an imutable character string.
     pub fn freeze(self) -> CharStr {
-        unsafe { CharStr::from_bytes_unchecked(self.bytes.freeze()) }
+        unsafe { CharStr::from_octets_unchecked(self.bytes.freeze()) }
     }
 }
 

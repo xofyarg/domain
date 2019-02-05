@@ -741,7 +741,7 @@ impl ParseAll for Null {
     type Err = ShortBuf;
 
     fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
-        parser.parse_bytes(len).map(Self::new)
+        parser.parse_octets(len).map(Self::new)
     }
 }
 
@@ -1006,7 +1006,7 @@ pub struct Txt {
 impl Txt {
     /// Creates a new Txt record from a single character string.
     pub fn new(text: CharStr) -> Self {
-        Txt { text: text.into_bytes() }
+        Txt { text: text.into_octets() }
     }
 
     /// Returns an iterator over the text items.
@@ -1069,7 +1069,7 @@ impl ParseAll for Txt {
     type Err = ParseOpenError;
 
     fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
-        let text = parser.parse_bytes(len)?;
+        let text = parser.parse_octets(len)?;
         let mut tmp = Parser::from_bytes(text.clone());
         while tmp.remaining() > 0 {
             CharStr::skip(&mut tmp).map_err(|_| ParseOpenError::ShortField)?
@@ -1105,7 +1105,7 @@ impl Scan for Txt {
             Err(_) => return Ok(Txt::new(first)),
             Ok(second) => second,
         };
-        let mut text = first.into_bytes();
+        let mut text = first.into_octets();
         text.extend_from_slice(second.as_ref());
         while let Ok(some) = CharStr::scan(scanner) {
             text.extend_from_slice(some.as_ref());
@@ -1230,7 +1230,7 @@ impl ParseAll for Wks {
             return Err(ParseOpenError::ShortField)
         }
         Ok(Self::new(Ipv4Addr::parse(parser)?, u8::parse(parser)?,
-                     parser.parse_bytes(len - 5)?))
+                     parser.parse_octets(len - 5)?))
     }
 }
 

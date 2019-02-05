@@ -12,6 +12,7 @@
 use std::net::{Ipv4Addr, Ipv6Addr};
 use bytes::{BigEndian, ByteOrder, Bytes};
 use failure::Fail;
+use crate::bits::octets::Octets;
 
 
 //------------ Parser --------------------------------------------------------
@@ -46,60 +47,55 @@ use failure::Fail;
 /// [`ParsedDname`]: ../name/struct.ParsedDname.html
 /// [`ShortBuf`]: ../struct.ShortBuf.html
 #[derive(Clone, Debug)]
-pub struct Parser {
+pub struct Parser<O=Bytes> {
     /// The underlying data.
-    bytes: Bytes,
+    octets: O,
 
-    /// The index in `bytes` where parsing should continue.
+    /// The index in `octets` where parsing should continue.
     pos: usize
 }
 
-impl Parser {
-    /// Creates a new parser atop a bytes value.
-    pub fn from_bytes(bytes: Bytes) -> Self {
-        Parser { bytes, pos: 0 }
+impl<O> Parser<O> {
+    /// Creates a new parser atop an octets value.
+    pub fn from_bytes(octets: O) -> Self {
+        Parser { octets, pos: 0 }
     }
 
-    /// Creates a new parser atop a static byte slice.
+    /// Extracts the underlying octets value from the parser.
     ///
-    /// This function is most useful for testing.
-    pub fn from_static(slice: &'static [u8]) -> Self {
-        Self::from_bytes(Bytes::from_static(slice))
-    }
-
-    /// Extracts the underlying bytes value from the parser.
-    ///
-    /// This will be the same bytes value the parser was created with. It
+    /// This will be the same octets value the parser was created with. It
     /// will not be modified by parsing at all.
-    pub fn unwrap(self) -> Bytes {
-        self.bytes
+    pub fn unwrap(self) -> O {
+        self.octets
     }
 }
 
-impl Parser {
-    /// Returns a reference to the underlying bytes.
-    pub fn as_bytes(&self) -> &Bytes {
-        &self.bytes
-    }
-
-    /// Returns a reference to the underlying byte slice.
-    pub fn as_slice(&self) -> &[u8] {
-        self.bytes.as_ref()
+impl<O> Parser<O> {
+    /// Returns a reference to the underlying octets.
+    pub fn as_octets(&self) -> &O {
+        &self.octets
     }
 
     /// Returns the current parse position as an index into the byte slice.
     pub fn pos(&self) -> usize {
         self.pos
     }
+}
 
-    /// Returns the number of remaining bytes to parse.
-    pub fn remaining(&self) -> usize {
-        self.bytes.len() - self.pos
+impl<O: Octets> Parser<O> {
+    /// Returns a reference to the underlying byte slice.
+    pub fn as_slice(&self) -> &[u8] {
+        self.octets.as_ref()
     }
 
-    /// Returns a slice containing the next `len` bytes.
+    /// Returns the number of remaining octets to parse.
+    pub fn remaining(&self) -> usize {
+        self.octets.len() - self.pos
+    }
+
+    /// Returns a sequence containing the next `len` octets.
     ///
-    /// If less than `len` bytes are left, returns an error.
+    /// If less than `len` octets are left, returns an error.
     pub fn peek(&self, len: usize) -> Result<&[u8], ShortBuf> {
         self.check_len(len)?;
         Ok(&self.peek_all()[..len])
@@ -107,7 +103,7 @@ impl Parser {
 
     /// Returns a byte slice of the data left to parse.
     pub fn peek_all(&self) -> &[u8] {
-        &self.bytes.as_ref()[self.pos..]
+        &self.octets.as_ref()[self.pos..]
     }
 
     /// Repositions the parser to the given index.
@@ -115,7 +111,7 @@ impl Parser {
     /// If `pos` is larger than the length of the parser, an error is
     /// returned.
     pub fn seek(&mut self, pos: usize) -> Result<(), ShortBuf> {
-        if pos > self.bytes.len() {
+        if pos > self.octets.len() {
             Err(ShortBuf)
         }
         else {
@@ -124,7 +120,7 @@ impl Parser {
         }
     }
 
-    /// Advances the parser‘s position by `len` bytes.
+    /// Advances the parser‘s position by `len` octets.
     ///
     /// If this would take the parser beyond its end, an error is returned.
     pub fn advance(&mut self, len: usize) -> Result<(), ShortBuf> {
@@ -137,7 +133,7 @@ impl Parser {
         }
     }
 
-    /// Checks that there are `len` bytes left to parse.
+    /// Checks that there are `len` octets left to parse.
     ///
     /// If there aren’t, returns an error.
     pub fn check_len(&self, len: usize) -> Result<(), ShortBuf> {
@@ -149,31 +145,31 @@ impl Parser {
         }
     }
 
-    /// Takes the next `len` bytes and returns them as a `Bytes` value.
+    /// Takes and returns the next `len` octets.
     ///
-    /// Advances the parser by `len` bytes. If there aren’t enough bytes left,
-    /// leaves the parser untouched and returns an error, instead.
-    pub fn parse_bytes(&mut self, len: usize) -> Result<Bytes, ShortBuf> {
+    /// Advances the parser by `len` octets. If there aren’t enough octets
+    /// left, leaves the parser untouched and returns an error, instead.
+    pub fn parse_octets(&mut self, len: usize) -> Result<O, ShortBuf> {
         let end = self.pos + len;
-        if end > self.bytes.len() {
+        if end > self.octets.len() {
             return Err(ShortBuf)
         }
-        let res = self.bytes.slice(self.pos, end);
+        let res = self.octets.range(self.pos, end);
         self.pos = end;
         Ok(res)
     }
 
-    /// Fills the provided buffer by taking bytes from the parser.
+    /// Fills the provided buffer by taking octets from the parser.
     pub fn parse_buf(&mut self, buf: &mut [u8]) -> Result<(), ShortBuf> {
         let pos = self.pos;
         self.advance(buf.len())?;
-        buf.copy_from_slice(&self.bytes.as_ref()[pos..self.pos]);
+        buf.copy_from_slice(&self.octets.as_ref()[pos..self.pos]);
         Ok(())
     }
 
     /// Takes an `i8` from the beginning of the parser.
     ///
-    /// Advances the parser by one byte. If there aren’t enough bytes left,
+    /// Advances the parser by one byte. If there aren’t enough octets left,
     /// leaves the parser untouched and returns an error, instead.
     pub fn parse_i8(&mut self) -> Result<i8, ShortBuf> {
         let res = self.peek(1)?[0] as i8;
@@ -183,7 +179,7 @@ impl Parser {
 
     /// Takes a `u8` from the beginning of the parser.
     ///
-    /// Advances the parser by one byte. If there aren’t enough bytes left,
+    /// Advances the parser by one byte. If there aren’t enough octets left,
     /// leaves the parser untouched and returns an error, instead.
     pub fn parse_u8(&mut self) -> Result<u8, ShortBuf> {
         let res = self.peek(1)?[0];
@@ -194,9 +190,9 @@ impl Parser {
     /// Takes an `i16` from the beginning of the parser.
     ///
     /// The value is converted from network byte order into the system’s own
-    /// byte order if necessary. The parser is advanced by two bytes. If there
-    /// aren’t enough bytes left, leaves the parser untouched and returns an
-    /// error, instead.
+    /// byte order if necessary. The parser is advanced by two octets. If
+    /// there aren’t enough octets left, leaves the parser untouched and
+    /// returns an error, instead.
     pub fn parse_i16(&mut self) -> Result<i16, ShortBuf> {
         let res = BigEndian::read_i16(self.peek(2)?);
         self.pos += 2;
@@ -206,9 +202,9 @@ impl Parser {
     /// Takes a `u16` from the beginning of the parser.
     ///
     /// The value is converted from network byte order into the system’s own
-    /// byte order if necessary. The parser is advanced by two bytes. If there
-    /// aren’t enough bytes left, leaves the parser untouched and returns an
-    /// error, instead.
+    /// byte order if necessary. The parser is advanced by two octets. If
+    /// there aren’t enough octets left, leaves the parser untouched and
+    /// returns an error, instead.
     pub fn parse_u16(&mut self) -> Result<u16, ShortBuf> {
         let res = BigEndian::read_u16(self.peek(2)?);
         self.pos += 2;
@@ -218,8 +214,8 @@ impl Parser {
     /// Takes an `i32` from the beginning of the parser.
     ///
     /// The value is converted from network byte order into the system’s own
-    /// byte order if necessary. The parser is advanced by four bytes. If
-    /// there aren’t enough bytes left, leaves the parser untouched and
+    /// byte order if necessary. The parser is advanced by four octets. If
+    /// there aren’t enough octets left, leaves the parser untouched and
     /// returns an error, instead.
     pub fn parse_i32(&mut self) -> Result<i32, ShortBuf> {
         let res = BigEndian::read_i32(self.peek(4)?);
@@ -230,8 +226,8 @@ impl Parser {
     /// Takes a `u32` from the beginning of the parser.
     ///
     /// The value is converted from network byte order into the system’s own
-    /// byte order if necessary. The parser is advanced by four bytes. If
-    /// there aren’t enough bytes left, leaves the parser untouched and
+    /// byte order if necessary. The parser is advanced by four octets. If
+    /// there aren’t enough octets left, leaves the parser untouched and
     /// returns an error, instead.
     pub fn parse_u32(&mut self) -> Result<u32, ShortBuf> {
         let res = BigEndian::read_u32(self.peek(4)?);
@@ -248,8 +244,8 @@ impl Parser {
 /// Types that implement this trait must use an encoding where the end of a
 /// value in the parser can be determined from data read so far. These are
 /// either fixed length types like `u32` or types that either contain length
-/// bytes or boundary markers.
-pub trait Parse: Sized {
+/// octets or boundary markers.
+pub trait Parse<O=Bytes>: Sized {
     /// The type of an error returned when parsing fails.
     type Err: From<ShortBuf>;
 
@@ -259,86 +255,86 @@ pub trait Parse: Sized {
     /// should be considered to be undefined. If it supposed to be reused in
     /// this case, you should store the position before attempting to parse
     /// and seek to that position again before continuing.
-    fn parse(parser: &mut Parser) -> Result<Self, Self::Err>;
+    fn parse(parser: &mut Parser<O>) -> Result<Self, Self::Err>;
 
     /// Skips over a value of this type at the beginning of `parser`.
     ///
     /// This function is the same as `parse` but doesn’t return the result.
     /// It can be used to check if the content of `parser` is correct or to
     /// skip over unneeded parts of a message.
-    fn skip(parser: &mut Parser) -> Result<(), Self::Err>;
+    fn skip(parser: &mut Parser<O>) -> Result<(), Self::Err>;
 }
 
-impl Parse for i8 {
+impl<O: Octets> Parse<O> for i8 {
     type Err = ShortBuf;
-    fn parse(parser: &mut Parser) -> Result<Self, ShortBuf> {
+    fn parse(parser: &mut Parser<O>) -> Result<Self, ShortBuf> {
         parser.parse_i8()
     }
 
-    fn skip(parser: &mut Parser) -> Result<(), ShortBuf> {
+    fn skip(parser: &mut Parser<O>) -> Result<(), ShortBuf> {
         parser.advance(1)
     }
 }
 
-impl Parse for u8 {
+impl<O: Octets> Parse<O> for u8 {
     type Err = ShortBuf;
-    fn parse(parser: &mut Parser) -> Result<Self, ShortBuf> {
+    fn parse(parser: &mut Parser<O>) -> Result<Self, ShortBuf> {
         parser.parse_u8()
     }
 
-    fn skip(parser: &mut Parser) -> Result<(), ShortBuf> {
+    fn skip(parser: &mut Parser<O>) -> Result<(), ShortBuf> {
         parser.advance(1)
     }
 }
 
-impl Parse for i16 {
+impl<O: Octets> Parse<O> for i16 {
     type Err = ShortBuf;
-    fn parse(parser: &mut Parser) -> Result<Self, ShortBuf> {
+    fn parse(parser: &mut Parser<O>) -> Result<Self, ShortBuf> {
         parser.parse_i16()
     }
 
-    fn skip(parser: &mut Parser) -> Result<(), ShortBuf> {
+    fn skip(parser: &mut Parser<O>) -> Result<(), ShortBuf> {
         parser.advance(2)
     }
 }
 
-impl Parse for u16 {
+impl<O: Octets> Parse<O> for u16 {
     type Err = ShortBuf;
-    fn parse(parser: &mut Parser) -> Result<Self, ShortBuf> {
+    fn parse(parser: &mut Parser<O>) -> Result<Self, ShortBuf> {
         parser.parse_u16()
     }
 
-    fn skip(parser: &mut Parser) -> Result<(), ShortBuf> {
+    fn skip(parser: &mut Parser<O>) -> Result<(), ShortBuf> {
         parser.advance(2)
     }
 }
 
-impl Parse for i32 {
+impl<O: Octets> Parse<O> for i32 {
     type Err = ShortBuf;
-    fn parse(parser: &mut Parser) -> Result<Self, ShortBuf> {
+    fn parse(parser: &mut Parser<O>) -> Result<Self, ShortBuf> {
         parser.parse_i32()
     }
 
-    fn skip(parser: &mut Parser) -> Result<(), ShortBuf> {
+    fn skip(parser: &mut Parser<O>) -> Result<(), ShortBuf> {
         parser.advance(4)
     }
 }
 
-impl Parse for u32 {
+impl<O: Octets> Parse<O> for u32 {
     type Err = ShortBuf;
-    fn parse(parser: &mut Parser) -> Result<Self, ShortBuf> {
+    fn parse(parser: &mut Parser<O>) -> Result<Self, ShortBuf> {
         parser.parse_u32()
     }
 
-    fn skip(parser: &mut Parser) -> Result<(), ShortBuf> {
+    fn skip(parser: &mut Parser<O>) -> Result<(), ShortBuf> {
         parser.advance(4)
     }
 }
 
-impl Parse for Ipv4Addr {
+impl<O: Octets> Parse<O> for Ipv4Addr {
     type Err = ShortBuf;
 
-    fn parse(parser: &mut Parser) -> Result<Self, ShortBuf> {
+    fn parse(parser: &mut Parser<O>) -> Result<Self, ShortBuf> {
         Ok(Self::new(
             u8::parse(parser)?,
             u8::parse(parser)?,
@@ -347,21 +343,21 @@ impl Parse for Ipv4Addr {
         ))
     }
 
-    fn skip(parser: &mut Parser) -> Result<(), ShortBuf> {
+    fn skip(parser: &mut Parser<O>) -> Result<(), ShortBuf> {
         parser.advance(4)
     }
 }
 
-impl Parse for Ipv6Addr {
+impl<O: Octets> Parse<O> for Ipv6Addr {
     type Err = ShortBuf;
 
-    fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
+    fn parse(parser: &mut Parser<O>) -> Result<Self, Self::Err> {
         let mut buf = [0u8; 16];
         parser.parse_buf(&mut buf)?;
         Ok(buf.into())
     }
 
-    fn skip(parser: &mut Parser) -> Result<(), ShortBuf> {
+    fn skip(parser: &mut Parser<O>) -> Result<(), ShortBuf> {
         parser.advance(16)
     }
 }
@@ -375,7 +371,7 @@ impl Parse for Ipv6Addr {
 /// value is expected to stretch over this entire length. There are types
 /// that can implement `ParseAll` but not [`Parse`] because they simply take
 /// all remaining bytes.
-pub trait ParseAll: Sized {
+pub trait ParseAll<O=Bytes>: Sized {
     /// The type returned when parsing fails.
     type Err: From<ShortBuf> + Fail;
 
@@ -384,14 +380,19 @@ pub trait ParseAll: Sized {
     /// An implementation must read exactly `len` bytes from the parser or
     /// fail. If it fails, the position of the parser is considered
     /// undefined.
-    fn parse_all(parser: &mut Parser, len: usize)
-                 -> Result<Self, Self::Err>;
+    fn parse_all(
+        parser: &mut Parser<O>,
+        len: usize
+    ) -> Result<Self, Self::Err>;
 }
 
-impl ParseAll for u8 {
+impl<O: Octets> ParseAll<O> for u8 {
     type Err = ParseAllError;
 
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+    fn parse_all(
+        parser: &mut Parser<O>,
+        len: usize
+    ) -> Result<Self, Self::Err> {
         if len < 1 {
             Err(ParseAllError::ShortField)
         }
@@ -404,10 +405,13 @@ impl ParseAll for u8 {
     }
 }
 
-impl ParseAll for u16 {
+impl<O: Octets> ParseAll<O> for u16 {
     type Err = ParseAllError;
 
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+    fn parse_all(
+        parser: &mut Parser<O>,
+        len: usize
+    ) -> Result<Self, Self::Err> {
         if len < 2 {
             Err(ParseAllError::ShortField)
         }
@@ -420,10 +424,13 @@ impl ParseAll for u16 {
     }
 }
 
-impl ParseAll for u32 {
+impl<O: Octets> ParseAll<O> for u32 {
     type Err = ParseAllError;
 
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+    fn parse_all(
+        parser: &mut Parser<O>,
+        len: usize
+    ) -> Result<Self, Self::Err> {
         if len < 4 {
             Err(ParseAllError::ShortField)
         }
@@ -436,18 +443,35 @@ impl ParseAll for u32 {
     }
 }
 
-impl ParseAll for Bytes {
+impl ParseAll<Bytes> for Bytes {
     type Err = ShortBuf;
 
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
-        parser.parse_bytes(len)
+    fn parse_all(
+        parser: &mut Parser<Bytes>,
+        len: usize
+    ) -> Result<Self, Self::Err> {
+        parser.parse_octets(len)
     }
 }
 
-impl ParseAll for Ipv4Addr {
+impl<'a> ParseAll<&'a [u8]> for Bytes {
+    type Err = ShortBuf;
+
+    fn parse_all(
+        parser: &mut Parser<&'a [u8]>,
+        len: usize
+    ) -> Result<Self, Self::Err> {
+        parser.parse_octets(len).map(Into::into)
+    }
+}
+
+impl<O: Octets> ParseAll<O> for Ipv4Addr {
     type Err = ParseAllError;
 
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+    fn parse_all(
+        parser: &mut Parser<O>,
+        len: usize
+    ) -> Result<Self, Self::Err> {
         if len < 4 {
             Err(ParseAllError::ShortField)
         }
@@ -460,10 +484,13 @@ impl ParseAll for Ipv4Addr {
     }
 }
 
-impl ParseAll for Ipv6Addr {
+impl<O: Octets> ParseAll<O> for Ipv6Addr {
     type Err = ParseAllError;
 
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+    fn parse_all(
+        parser: &mut Parser<O>,
+        len: usize
+    ) -> Result<Self, Self::Err> {
         if len < 16 {
             Err(ParseAllError::ShortField)
         }

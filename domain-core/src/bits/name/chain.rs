@@ -5,8 +5,9 @@
 
 use std::{fmt, iter};
 use bytes::BufMut;
-use ::bits::compose::{Compose, Compress, Compressor};
-use ::bits::parse::ShortBuf;
+use crate::bits::compose::{Compose, Compress, Compressor};
+use crate::bits::octets::Octets;
+use crate::bits::parse::ShortBuf;
 use super::label::Label;
 use super::relative::DnameIter;
 use super::traits::{ToLabelIter, ToRelativeDname, ToDname};
@@ -53,12 +54,12 @@ impl<L: Compose, R: Compose> Chain<L, R> {
     }
 }
 
-impl<R: Compose> Chain<UncertainDname, R> {
+impl<O: Octets, R: Compose> Chain<UncertainDname<O>, R> {
     /// Creates a chain from an uncertain name.
     /// 
     /// This function is separate because the ultimate size depends on the
     /// variant of the left name.
-    pub(super) fn new_uncertain(left: UncertainDname, right: R)
+    pub(super) fn new_uncertain(left: UncertainDname<O>, right: R)
                                 -> Result<Self, LongChainError> {
         if let UncertainDname::Relative(ref name) = left {
             if name.compose_len() + right.compose_len() > 255 {
@@ -134,8 +135,9 @@ impl<L: fmt::Display, R: fmt::Display> fmt::Display for Chain<L, R> {
     }
 }
 
-impl<'a, R: ToDname> ToLabelIter<'a> for Chain<UncertainDname, R> {
-    type LabelIter = UncertainChainIter<'a, R>;
+impl<'a, O, R> ToLabelIter<'a> for Chain<UncertainDname<O>, R>
+where O: Octets, R: ToDname {
+    type LabelIter = UncertainChainIter<'a, O, R>;
 
     fn iter_labels(&'a self) -> Self::LabelIter {
         match self.left {
@@ -217,14 +219,13 @@ impl<'a, L, R> DoubleEndedIterator for ChainIter<'a, L, R>
 //------------ UncertainChainIter --------------------------------------------
 
 /// The label iterator for domain name chains with uncertain domain names.
-pub enum UncertainChainIter<'a, R: ToLabelIter<'a>> {
+pub enum UncertainChainIter<'a, O: Octets, R: ToLabelIter<'a>> {
     Absolute(DnameIter<'a>),
-    Relative(ChainIter<'a, UncertainDname, R>),
+    Relative(ChainIter<'a, UncertainDname<O>, R>),
 }
 
-impl<'a, R> Iterator for UncertainChainIter<'a, R>
-where R: ToLabelIter<'a>
-{
+impl<'a, O, R> Iterator for UncertainChainIter<'a, O, R>
+where O: Octets, R: ToLabelIter<'a> {
     type Item = &'a Label;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -235,9 +236,8 @@ where R: ToLabelIter<'a>
     }
 }
 
-impl<'a, R> DoubleEndedIterator for UncertainChainIter<'a, R>
-where R: ToLabelIter<'a>
-{
+impl<'a, O, R> DoubleEndedIterator for UncertainChainIter<'a, O, R>
+where O: Octets, R: ToLabelIter<'a> {
     fn next_back(&mut self) -> Option<Self::Item> {
         match *self {
             UncertainChainIter::Absolute(ref mut inner) => inner.next_back(),

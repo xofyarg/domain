@@ -249,7 +249,7 @@ impl ParseRecordData for UnknownRecordData {
 
     fn parse_data(rtype: Rtype, parser: &mut Parser, rdlen: usize)
                   -> Result<Option<Self>, Self::Err> {
-        parser.parse_bytes(rdlen)
+        parser.parse_octets(rdlen)
               .map(|data| Some(Self::from_bytes(rtype, data)))
     }
 }

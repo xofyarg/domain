@@ -4,7 +4,8 @@
 
 use std::{cmp, fmt, hash, ops};
 use bytes::{BufMut, Bytes};
-use ::bits::compose::Compose;
+use crate::bits::compose::Compose;
+use crate::bits::octets::Octets;
 use super::builder::DnameBuilder;
 use super::chain::{Chain, LongChainError};
 use super::dname::Dname;
@@ -30,19 +31,19 @@ use super::traits::{ToLabelIter, ToRelativeDname};
 /// [`Bytes`]: ../../../bytes/struct.Bytes.html
 /// [`Dname`]: struct.Dname.html
 #[derive(Clone)]
-pub struct RelativeDname {
-    bytes: Bytes,
+pub struct RelativeDname<O=Bytes> {
+    octets: O,
 }
 
 /// # Creation and Conversion
 ///
-impl RelativeDname {
-    /// Creates a relative domain name from a bytes value without checking.
+impl<O: Octets> RelativeDname<O> {
+    /// Creates a relative domain name from octets without checking.
     ///
-    /// Since the content of the bytes value can be anything, really, this is
+    /// Since the content of the octets can be anything, really, this is
     /// an unsafe function.
-    pub(super) unsafe fn from_bytes_unchecked(bytes: Bytes) -> Self {
-        RelativeDname { bytes }
+    pub(super) unsafe fn from_octets_unchecked(octets: O) -> Self {
+        RelativeDname { octets }
     }
 
     /// Creates an empty relative domain name.
@@ -51,7 +52,7 @@ impl RelativeDname {
     /// excercise to the reader.
     pub fn empty() -> Self {
         unsafe {
-            RelativeDname::from_bytes_unchecked(Bytes::from_static(b""))
+            RelativeDname::from_octets_unchecked(O::from_static(b""))
         }
     }
 
@@ -63,20 +64,20 @@ impl RelativeDname {
     /// them as regular labels.
     pub fn wildcard() -> Self {
         unsafe {
-            RelativeDname::from_bytes_unchecked(Bytes::from_static(b"\x01*"))
+            RelativeDname::from_octets_unchecked(O::from_static(b"\x01*"))
         }
     }
 
-    /// Creates a relative domain name from a bytes value.
+    /// Creates a relative domain name from octets.
     ///
-    /// This checks that `bytes` contains a properly encoded relative domain
+    /// This checks that `octets` contains a properly encoded relative domain
     /// name and fails if it doesn’t.
-    pub fn from_bytes(bytes: Bytes) -> Result<Self, RelativeDnameError> {
-        if bytes.len() > 254 {
+    pub fn from_octets(octets: O) -> Result<Self, RelativeDnameError> {
+        if octets.len() > 254 {
             return Err(RelativeDnameError::LongName)
         }
         {
-            let mut tmp = bytes.as_ref();
+            let mut tmp = octets.as_ref();
             while !tmp.is_empty() {
                 let (label, tail) = Label::split_from(tmp)?;
                 if label.is_root() {
@@ -85,31 +86,67 @@ impl RelativeDname {
                 tmp = tail;
             }
         }
-        Ok(unsafe { RelativeDname::from_bytes_unchecked(bytes) })
+        Ok(unsafe { RelativeDname::from_octets_unchecked(octets) })
     }
 
-    /// Creates a relative domain name from a byte slice.
+    /// Returns a reference to the octets.
+    pub fn as_octets(&self) -> &O {
+        &self.octets
+    }
+
+    /// Returns a reference to the underlying byte slice.
+    pub fn as_slice(&self) -> &[u8] {
+        self.octets.as_ref()
+    }
+
+    /// Converts the name into its underlying octets.
+    pub fn unwrap(self) -> O {
+        self.octets
+    }
+
+    /// Creates a domain name by concatenating `self` with `other`.
+    ///
+    /// Depending on whether `other` is an absolute or relative domain name,
+    /// the resulting name will behave like an absolute or relative name.
+    /// 
+    /// The method will fail if the combined length of the two names is
+    /// greater than the size limit of 255. Note that in this case you will
+    /// loose both `self` and `other`, so it might be worthwhile to check
+    /// first.
+    pub fn chain<N: Compose>(
+        self, other: N
+    ) -> Result<Chain<Self, N>, LongChainError> {
+        Chain::new(self, other)
+    }
+
+    /// Creates an absolute name by chaining the root label to it.
+    pub fn chain_root(self) -> Chain<Self, Dname<&'static [u8]>> {
+        self.chain(Dname::root()).unwrap()
+    }
+}
+
+impl RelativeDname<Bytes> {
+    pub fn from_bytes(bytes: Bytes) -> Result<Self, RelativeDnameError> {
+        Self::from_octets(bytes)
+    }
+
+    /// Creates a relative domain name from an octets slice.
     ///
     /// The function will create a new bytes value from the slice’s content.
     /// If the slice does not contain a correctly encoded, relative domain
     /// name, the function will fail.
     pub fn from_slice(slice: &[u8]) -> Result<Self, RelativeDnameError> {
-        Self::from_bytes(slice.into())
+        Self::from_octets(slice.into())
     }
 
     /// Returns a reference to the underlying bytes value.
     pub fn as_bytes(&self) -> &Bytes {
-        &self.bytes
-    }
-
-    /// Returns a reference to the underlying byte slice.
-    pub fn as_slice(&self) -> &[u8] {
-        self.bytes.as_ref()
+        &self.octets
     }
 
     /// Converts the name into the underlying bytes value.
     pub fn into_bytes(self) -> Bytes {
-        self.bytes
+        self.octets
     }
 
     /// Converts the name into a domain name builder for appending data.
@@ -122,7 +159,7 @@ impl RelativeDname {
     /// [`BytesMut`]: ../../../bytes/struct.BytesMut.html
     /// [`try_mut`]: ../../../bytes/struct.BytesMut.html#method.try_mut
     pub fn into_builder(self) -> DnameBuilder {
-        let bytes = match self.bytes.try_mut() {
+        let bytes = match self.octets.try_mut() {
             Ok(bytes) => bytes,
             Err(bytes) => bytes.as_ref().into()
         };
@@ -136,36 +173,18 @@ impl RelativeDname {
     /// instead.
     ///
     /// [`chain_root`]: #method.chain_root
-    pub fn into_absolute(self) -> Dname {
+    pub fn into_absolute(self) -> Dname<Bytes> {
         self.into_builder().into_dname().unwrap()
-    }
-
-    /// Creates a domain name by concatenating `self` with `other`.
-    ///
-    /// Depending on whether `other` is an absolute or relative domain name,
-    /// the resulting name will behave like an absolute or relative name.
-    /// 
-    /// The method will fail if the combined length of the two names is
-    /// greater than the size limit of 255. Note that in this case you will
-    /// loose both `self` and `other`, so it might be worthwhile to check
-    /// first.
-    pub fn chain<N: Compose>(self, other: N)
-                                -> Result<Chain<Self, N>, LongChainError> {
-        Chain::new(self, other)
-    }
-
-    /// Creates an absolute name by chaining the root label to it.
-    pub fn chain_root(self) -> Chain<Self, Dname> {
-        self.chain(Dname::root()).unwrap()
     }
 }
 
+
 /// # Working with Labels
 ///
-impl RelativeDname {
+impl<O: Octets> RelativeDname<O> {
     /// Returns an iterator over the labels of the domain name.
     pub fn iter(&self) -> DnameIter {
-        DnameIter::new(self.bytes.as_ref())
+        DnameIter::new(self.octets.as_ref())
     }
 
     /// Returns the number of labels in the name.
@@ -232,44 +251,89 @@ impl RelativeDname {
         }
     }
 
-    /// Returns a part of the name indicated by start and end positions.
+    /// Returns a part of the name indicated by start and end octet indexes.
     ///
-    /// The returned name will start at position `begin` and end right before
+    /// The returned name will start at position `start` and end right before
     /// position `end`. Both positions need to be the beginning of a label.
     ///
     /// # Panics
     ///
     /// The method panics if either position is not the beginning of a label
     /// or is out of bounds.
-    pub fn slice(&self, begin: usize, end: usize) -> Self {
-        self.check_index(begin);
+    pub fn range(&self, start: usize, end: usize) -> Self {
+        self.check_index(start);
         self.check_index(end);
-        unsafe { Self::from_bytes_unchecked(self.bytes.slice(begin, end)) }
+        unsafe { Self::from_octets_unchecked(self.octets.range(start, end)) }
     }
 
-    /// Returns the part of the name starting at the given position.
+    /// Returns the part of the name indicated by start and end octet indexes.
+    ///
+    /// This is the old name of [`range`] and is therefore obsolete.
+    ///
+    /// [`range`]: #method.range
+    #[deprecated(since="0.5.0", note="renamed to range")]
+    pub fn slice(&self, start: usize, end: usize) -> Self {
+        self.range(start, end)
+    }
+
+    /// Returns the part of the name starting at the given octet index.
     ///
     /// # Panics
     ///
-    /// The method panics if the position is not the beginning of a label
+    /// The method panics if the index is not the beginning of a label
     /// or is beyond the end of the name.
+    pub fn range_from(&self, start: usize) -> Self {
+        self.check_index(start);
+        unsafe { Self::from_octets_unchecked(self.octets.range_from(start)) }
+    }
+
+    /// Returns the part of the name starting at the given octet index.
+    ///
+    /// This is the old name of [`range_from`] and is therefore obsolete.
+    ///
+    /// [`range_from`]: #method.range_from
     pub fn slice_from(&self, begin: usize) -> Self {
-        self.check_index(begin);
-        unsafe { Self::from_bytes_unchecked(self.bytes.slice_from(begin)) }
+        self.range_from(begin)
     }
 
-    /// Returns the part of the name ending before the given position.
+    /// Returns the part of the name ending before the given octet index.
     ///
     /// # Panics
     ///
     /// The method panics if the position is not the beginning of a label
     /// or is beyond the end of the name.
-    pub fn slice_to(&self, end: usize) -> Self {
+    pub fn range_to(&self, end: usize) -> Self {
         self.check_index(end);
-        unsafe { Self::from_bytes_unchecked(self.bytes.slice_to(end)) }
+        unsafe { Self::from_octets_unchecked(self.octets.range_to(end)) }
     }
 
-    /// Splits the name into two at the given position.
+    /// Returns the part of the name ending at the given octet index.
+    ///
+    /// This is the old name of [`range_to`] and is therefore obsolete.
+    ///
+    /// [`range_to`]: #method.range_from
+    pub fn slice_to(&self, end: usize) -> Self {
+        self.range_to(end)
+    }
+
+    /// Splits the name in two at the given octet index.
+    ///
+    /// Consumes the name and returns a tuple of the two parts left over after
+    /// splitting.
+    ///
+    /// # Panics
+    ///
+    /// The method panics if the position is not the beginning of a label
+    /// or is beyond the end of the name.
+    pub fn split_at(self, mid: usize) -> (Self, Self) {
+        self.check_index(mid);
+        unsafe {(
+            Self::from_octets_unchecked(self.octets.range_to(mid)),
+            Self::from_octets_unchecked(self.octets.range_from(mid))
+        )}
+    }
+
+    /// Splits off the name starting at the given octet index.
     ///
     /// Afterwards, `self` will contain the name ending before the position
     /// while the name starting at the position will be returned.
@@ -280,12 +344,14 @@ impl RelativeDname {
     /// or is beyond the end of the name.
     pub fn split_off(&mut self, mid: usize) -> Self {
         self.check_index(mid);
-        unsafe { Self::from_bytes_unchecked(self.bytes.split_off(mid)) }
+        let right = self.octets.range_from(mid);
+        self.octets = self.octets.range_to(mid);
+        unsafe { Self::from_octets_unchecked(right) }
     }
 
-    /// Splits the name into two at the given position.
+    /// Splits off the name ending before the given octet index.
     ///
-    /// Afterwards, `self` will contain the name starting at the position
+    /// Afterwards, `self` will contain the name starting at the index
     /// while the name ending right before it will be returned. 
     ///
     /// # Panics
@@ -294,7 +360,9 @@ impl RelativeDname {
     /// or is beyond the end of the name.
     pub fn split_to(&mut self, mid: usize) -> Self {
         self.check_index(mid);
-        unsafe { Self::from_bytes_unchecked(self.bytes.split_to(mid)) }
+        let left = self.octets.range_to(mid);
+        self.octets = self.octets.range_from(mid);
+        unsafe { Self::from_octets_unchecked(left) }
     }
 
     /// Truncates the name to the given length.
@@ -305,7 +373,7 @@ impl RelativeDname {
     /// or is beyond the end of the name.
     pub fn truncate(&mut self, len: usize) {
         self.check_index(len);
-        self.bytes.truncate(len);
+        self.octets = self.octets.range_to(len);
     }
 
     /// Splits off the first label.
@@ -322,9 +390,7 @@ impl RelativeDname {
             Some(label) => label.len() + 1,
             None => return None
         };
-        Some(unsafe {
-            Self::from_bytes_unchecked(self.bytes.split_to(first_end))
-        })
+        Some(self.split_to(first_end))
     }
 
     /// Reduces the name to its parent.
@@ -344,8 +410,8 @@ impl RelativeDname {
     pub fn strip_suffix<N: ToRelativeDname>(&mut self, base: &N)
                                             -> Result<(), StripSuffixError> {
         if self.ends_with(base) {
-            let idx = self.bytes.len() - base.compose_len();
-            self.bytes.split_off(idx);
+            let idx = self.octets.len() - base.compose_len();
+            self.split_off(idx);
             Ok(())
         }
         else {
@@ -357,9 +423,9 @@ impl RelativeDname {
 
 //--- Compose
 
-impl Compose for RelativeDname {
+impl<O: Octets> Compose for RelativeDname<O> {
     fn compose_len(&self) -> usize {
-        self.bytes.len()
+        self.octets.len()
     }
 
     fn compose<B: BufMut>(&self, buf: &mut B) {
@@ -370,7 +436,7 @@ impl Compose for RelativeDname {
 
 //--- ToLabelIter and ToRelativeDname
 
-impl<'a> ToLabelIter<'a> for RelativeDname {
+impl<'a, O: Octets> ToLabelIter<'a> for RelativeDname<O> {
     type LabelIter = DnameIter<'a>;
 
     fn iter_labels(&'a self) -> Self::LabelIter {
@@ -378,9 +444,13 @@ impl<'a> ToLabelIter<'a> for RelativeDname {
     }
 }
 
-impl ToRelativeDname for RelativeDname {
-    fn to_name(&self) -> RelativeDname {
-        self.clone()
+impl<O: Octets> ToRelativeDname for RelativeDname<O> {
+    fn to_name(&self) -> RelativeDname<Bytes> {
+        unsafe {
+            RelativeDname::from_octets_unchecked(
+                self.octets.clone().into_bytes()
+            )
+        }
     }
     
     fn as_flat_slice(&self) -> Option<&[u8]> {
@@ -391,30 +461,24 @@ impl ToRelativeDname for RelativeDname {
 
 //--- Deref and AsRef
 
-impl ops::Deref for RelativeDname {
-    type Target = Bytes;
+impl<O: Octets> ops::Deref for RelativeDname<O> {
+    type Target = O;
 
-    fn deref(&self) -> &Bytes {
-        self.as_ref()
+    fn deref(&self) -> &O {
+        self.as_octets()
     }
 }
 
-impl AsRef<Bytes> for RelativeDname {
-    fn as_ref(&self) -> &Bytes {
-        &self.bytes
-    }
-}
-
-impl AsRef<[u8]> for RelativeDname {
+impl<O: Octets> AsRef<[u8]> for RelativeDname<O> {
     fn as_ref(&self) -> &[u8] {
-        self.bytes.as_ref()
+        self.as_slice()
     }
 }
 
 
 //--- IntoIterator
 
-impl<'a> IntoIterator for &'a RelativeDname {
+impl<'a, O: Octets> IntoIterator for &'a RelativeDname<O> {
     type Item = &'a Label;
     type IntoIter = DnameIter<'a>;
 
@@ -426,24 +490,24 @@ impl<'a> IntoIterator for &'a RelativeDname {
 
 //--- PartialEq and Eq
 
-impl<N: ToRelativeDname> PartialEq<N> for RelativeDname {
+impl<N: ToRelativeDname, O: Octets> PartialEq<N> for RelativeDname<O> {
     fn eq(&self, other: &N) -> bool {
         self.name_eq(other)
     }
 }
 
-impl Eq for RelativeDname { }
+impl<O: Octets> Eq for RelativeDname<O> { }
 
 
 //--- PartialOrd and Ord
 
-impl PartialOrd for RelativeDname {
-    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
+impl<N: ToRelativeDname, O: Octets> PartialOrd<N> for RelativeDname<O> {
+    fn partial_cmp(&self, other: &N) -> Option<cmp::Ordering> {
         Some(self.name_cmp(other))
     }
 }
 
-impl Ord for RelativeDname {
+impl<O: Octets> Ord for RelativeDname<O> {
     fn cmp(&self, other: &Self) -> cmp::Ordering {
         self.name_cmp(other)
     }
@@ -452,7 +516,7 @@ impl Ord for RelativeDname {
 
 //--- Hash
 
-impl hash::Hash for RelativeDname {
+impl<O: Octets> hash::Hash for RelativeDname<O> {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
         for item in self.iter() {
             item.hash(state)
@@ -463,7 +527,7 @@ impl hash::Hash for RelativeDname {
 
 //--- Display and Debug
 
-impl fmt::Display for RelativeDname {
+impl<O: Octets> fmt::Display for RelativeDname<O> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut iter = self.iter();
         match iter.next() {
@@ -478,7 +542,7 @@ impl fmt::Display for RelativeDname {
     }
 }
 
-impl fmt::Debug for RelativeDname {
+impl<O: Octets> fmt::Debug for RelativeDname<O> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "RelativeDname({})", self)
     }
