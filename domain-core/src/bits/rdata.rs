@@ -33,9 +33,10 @@
 use std::fmt;
 use bytes::{BufMut, Bytes, BytesMut};
 use failure::Fail;
-use ::iana::Rtype;
-use ::master::scan::{CharSource, Scan, Scanner, ScanError, SyntaxError};
+use crate::iana::Rtype;
+use crate::master::scan::{CharSource, Scan, Scanner, ScanError, SyntaxError};
 use super::compose::{Compose, Compress, Compressor};
+use super::octets::Octets;
 use super::parse::{ParseAll, Parser, ShortBuf};
 
 
@@ -69,7 +70,7 @@ pub trait RecordData: Compose + Compress + Sized {
 /// data to be used when constructing the message.
 ///
 /// To reflect this asymmetry, parsing of record data has its own trait.
-pub trait ParseRecordData: RecordData {
+pub trait ParseRecordData<O=Bytes>: RecordData {
     /// The type of an error returned when parsing fails.
     type Err: Fail;
 
@@ -84,7 +85,7 @@ pub trait ParseRecordData: RecordData {
     ///
     /// If the function doesn’t want to process the data, it must not touch
     /// the parser. In particual, it must not advance it.
-    fn parse_data(rtype: Rtype, parser: &mut Parser, rdlen: usize)
+    fn parse_data(rtype: Rtype, parser: &mut Parser<O>, rdlen: usize)
                   -> Result<Option<Self>, Self::Err>;
 }
 
@@ -115,11 +116,11 @@ impl<T: RtypeRecordData + Compose + Compress + Sized> RecordData for T {
     fn rtype(&self) -> Rtype { Self::RTYPE }
 }
 
-impl<T: RtypeRecordData + ParseAll + Compose + Compress + Sized>
-            ParseRecordData for T {
-    type Err = <Self as ParseAll>::Err;
+impl<O, T> ParseRecordData<O> for T
+where T: RtypeRecordData + ParseAll<O> + Compose + Compress + Sized {
+    type Err = <Self as ParseAll<O>>::Err;
 
-    fn parse_data(rtype: Rtype, parser: &mut Parser, rdlen: usize)
+    fn parse_data(rtype: Rtype, parser: &mut Parser<O>, rdlen: usize)
                   -> Result<Option<Self>, Self::Err> {
         if rtype == Self::RTYPE {
             Self::parse_all(parser, rdlen).map(Some)
@@ -153,17 +154,17 @@ impl<T: RtypeRecordData + ParseAll + Compose + Compress + Sized>
 /// [RFC 3597]: https://tools.ietf.org/html/rfc3597
 /// [`domain::rdata::rfc1035]: ../../rdata/rfc1035/index.html
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct UnknownRecordData {
+pub struct UnknownRecordData<O=Bytes> {
     /// The record type of this data.
     rtype: Rtype,
 
     /// The record data.
-    data: Bytes,
+    data: O,
 }
 
-impl UnknownRecordData {
-    /// Creates generic record data from a bytes value contain the data.
-    pub fn from_bytes(rtype: Rtype, data: Bytes) -> Self {
+impl<O> UnknownRecordData<O> {
+    /// Creates generic record data from a some octets for data.
+    pub fn from_octets(rtype: Rtype, data: O) -> Self {
         UnknownRecordData { rtype, data }
     }
 
@@ -173,8 +174,15 @@ impl UnknownRecordData {
     }
 
     /// Returns a reference to the record data.
-    pub fn data(&self) -> &Bytes {
+    pub fn data(&self) -> &O {
         &self.data
+    }
+}
+
+impl UnknownRecordData<Bytes> {
+    /// Creates generic record data from a bytes value contain the data.
+    pub fn from_bytes(rtype: Rtype, data: Bytes) -> Self {
+        UnknownRecordData { rtype, data }
     }
 
     /// Scans the record data.
@@ -219,7 +227,7 @@ impl UnknownRecordData {
 
 //--- Compose, and Compress
 
-impl Compose for UnknownRecordData {
+impl<O: Octets> Compose for UnknownRecordData<O> {
     fn compose_len(&self) -> usize {
         self.data.len()
     }
@@ -229,7 +237,7 @@ impl Compose for UnknownRecordData {
     }
 }
 
-impl Compress for UnknownRecordData {
+impl<O: Octets> Compress for UnknownRecordData<O> {
     fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
         buf.compose(self)
     }
@@ -238,26 +246,26 @@ impl Compress for UnknownRecordData {
 
 //--- RecordData and ParseRecordData
 
-impl RecordData for UnknownRecordData {
+impl<O: Octets> RecordData for UnknownRecordData<O> {
     fn rtype(&self) -> Rtype {
         self.rtype
     }
 }
 
-impl ParseRecordData for UnknownRecordData {
+impl<O: Octets> ParseRecordData<O> for UnknownRecordData<O> {
     type Err = ShortBuf;
 
-    fn parse_data(rtype: Rtype, parser: &mut Parser, rdlen: usize)
+    fn parse_data(rtype: Rtype, parser: &mut Parser<O>, rdlen: usize)
                   -> Result<Option<Self>, Self::Err> {
         parser.parse_octets(rdlen)
-              .map(|data| Some(Self::from_bytes(rtype, data)))
+              .map(|data| Some(Self::from_octets(rtype, data)))
     }
 }
 
 
 //--- Display
 
-impl fmt::Display for UnknownRecordData {
+impl<O: Octets> fmt::Display for UnknownRecordData<O> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "\\# {}", self.data.len())?;
         for ch in self.data.as_ref() {
