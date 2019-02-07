@@ -1,52 +1,60 @@
 //! EDNS Options from RFC 7901
 
-use bytes::BufMut;
-use ::bits::compose::Compose;
-use ::bits::message_builder::OptBuilder;
-use ::bits::name::{Dname, ToDname};
-use ::bits::parse::{ParseAll, Parser, ShortBuf};
-use ::iana::OptionCode;
+use bytes::{Bytes, BufMut};
+use crate::bits::compose::Compose;
+use crate::bits::message_builder::OptBuilder;
+use crate::bits::name::{Dname, ToDname};
+use crate::bits::octets::Octets;
+use crate::bits::parse::{ParseAll, Parser, ShortBuf};
+use crate::iana::OptionCode;
 use super::CodeOptData;
 
 
 //------------ Chain --------------------------------------------------------
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct Chain {
-    start: Dname,
+pub struct Chain<O: Octets=Bytes> {
+    start: Dname<O>,
 }
 
-impl Chain {
-    pub fn new(start: Dname) -> Self {
+impl<O: Octets> Chain<O> {
+    pub fn new(start: Dname<O>) -> Self {
         Chain { start }
     }
 
-    pub fn push<N: ToDname>(builder: &mut OptBuilder, start: &N)
-                            -> Result<(), ShortBuf> {
+    pub fn start(&self) -> &Dname<O> {
+        &self.start
+    }
+}
+
+impl Chain<&'static [u8]> {
+    pub fn push<N: ToDname>(
+        builder: &mut OptBuilder,
+        start: &N
+    ) -> Result<(), ShortBuf> {
         let len = start.compose_len();
         assert!(len <= ::std::u16::MAX as usize);
         builder.build(OptionCode::Chain, len as u16, |buf| {
             buf.compose(start)
         })
     }
-
-    pub fn start(&self) -> &Dname {
-        &self.start
-    }
 }
 
 
 //--- ParseAll and Compose
 
-impl ParseAll for Chain {
+impl<O: Octets> ParseAll<O> for Chain<O> {
     type Err = <Dname as ParseAll>::Err;
 
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+    fn parse_all(
+        parser: &mut Parser<O>,
+        len: usize
+    ) -> Result<Self, Self::Err> {
         Dname::parse_all(parser, len).map(Self::new)
     }
 }
 
-impl Compose for Chain {
+impl<O: Octets> Compose for Chain<O> {
     fn compose_len(&self) -> usize {
         self.start.compose_len()
     }
@@ -59,7 +67,7 @@ impl Compose for Chain {
 
 //--- CodeOptData
 
-impl CodeOptData for Chain {
+impl<O: Octets> CodeOptData for Chain<O> {
     const CODE: OptionCode = OptionCode::Chain;
 }
 

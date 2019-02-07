@@ -1,27 +1,36 @@
 //! EDNS Options from RFC 8145.
 
 use bytes::{BigEndian, BufMut, ByteOrder, Bytes};
-use ::bits::compose::Compose;
-use ::bits::message_builder::OptBuilder;
-use ::bits::parse::{ParseAll, ParseAllError, Parser, ShortBuf};
-use ::iana::OptionCode;
+use crate::bits::compose::Compose;
+use crate::bits::message_builder::OptBuilder;
+use crate::bits::octets::Octets;
+use crate::bits::parse::{ParseAll, ParseAllError, Parser, ShortBuf};
+use crate::iana::OptionCode;
 use super::CodeOptData;
 
 
 //------------ KeyTag -------------------------------------------------------
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct KeyTag {
-    bytes: Bytes,
+pub struct KeyTag<O: Octets=Bytes> {
+    octets: O,
 }
 
-impl KeyTag {
-    pub fn new(bytes: Bytes) -> Self {
-        KeyTag { bytes }
+impl<O: Octets> KeyTag<O> {
+    pub fn new(octets: O) -> Self {
+        KeyTag { octets }
     }
 
-    pub fn push(builder: &mut OptBuilder, tags: &[u16])
-                -> Result<(), ShortBuf> {
+    pub fn iter(&self) -> KeyTagIter {
+        KeyTagIter(self.octets.as_ref())
+    }
+}
+
+impl KeyTag<&'static [u8]> {
+    pub fn push(
+        builder: &mut OptBuilder,
+        tags: &[u16]
+    ) -> Result<(), ShortBuf> {
         let len = tags.len() * 2;
         assert!(len <= ::std::u16::MAX as usize);
         builder.build(OptionCode::KeyTag, len as u16, |buf| {
@@ -31,19 +40,18 @@ impl KeyTag {
             Ok(())
         })
     }
-
-    pub fn iter(&self) -> KeyTagIter {
-        KeyTagIter(self.bytes.as_ref())
-    }
 }
 
 
 //--- ParseAll and Compose
 
-impl ParseAll for KeyTag {
+impl<O: Octets> ParseAll<O> for KeyTag<O> {
     type Err = ParseAllError;
 
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+    fn parse_all(
+        parser: &mut Parser<O>,
+        len: usize
+    ) -> Result<Self, Self::Err> {
         if len % 2 == 1 {
             Err(ParseAllError::TrailingData)
         }
@@ -53,13 +61,13 @@ impl ParseAll for KeyTag {
     }
 }
 
-impl Compose for KeyTag {
+impl<O: Octets> Compose for KeyTag<O> {
     fn compose_len(&self) -> usize {
-        self.bytes.len()
+        self.octets.len()
     }
 
     fn compose<B: BufMut>(&self, buf: &mut B) {
-        buf.put_slice(self.bytes.as_ref())
+        buf.put_slice(self.octets.as_ref())
     }
 }
 
@@ -73,7 +81,7 @@ impl CodeOptData for KeyTag {
 
 //--- IntoIterator
 
-impl<'a> IntoIterator for &'a KeyTag {
+impl<'a, O: Octets> IntoIterator for &'a KeyTag<O> {
     type Item = u16;
     type IntoIter = KeyTagIter<'a>;
 

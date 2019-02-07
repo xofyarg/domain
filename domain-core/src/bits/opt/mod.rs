@@ -25,15 +25,15 @@
 
 #[macro_use] mod macros;
 opt_types!{
-    rfc5001::{Nsid};
-    rfc6975::{Dau, Dhu, N3u};
+    rfc5001::{Nsid<O>};
+    rfc6975::{Dau<O>, Dhu<O>, N3u<O>};
     rfc7314::{Expire};
     rfc7828::{TcpKeepalive};
     rfc7830::{Padding};
     rfc7871::{ClientSubnet};
     rfc7873::{Cookie};
-    rfc7901::{Chain};
-    rfc8145::{KeyTag};
+    rfc7901::{Chain<O>};
+    rfc8145::{KeyTag<O>};
 }
 
 
@@ -42,10 +42,11 @@ opt_types!{
 use std::{fmt, mem, ops};
 use std::marker::PhantomData;
 use bytes::{BigEndian, BufMut, ByteOrder, Bytes};
-use ::iana::{OptionCode, OptRcode, Rtype};
+use crate::iana::{OptionCode, OptRcode, Rtype};
 use super::compose::{Compose, Compress, Compressor};
 use super::header::Header;
 use super::name::ToDname;
+use super::octets::Octets;
 use super::parse::{Parse, ParseAll, Parser, ShortBuf};
 use super::rdata::RtypeRecordData;
 use super::record::Record;
@@ -60,69 +61,82 @@ use super::record::Record;
 //  XXX Deriving PartialEq etc. might be wrong for some options. Have a look
 //      at this again once we have proper option handling.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct Opt {
-    bytes: Bytes,
+pub struct Opt<O=Bytes> {
+    octets: O,
 }
 
-impl Opt {
-    /// Creates OPT record data from the underlying bytes value.
+impl<O: Octets> Opt<O> {
+    /// Creates OPT record data from the underlying octets.
     ///
     /// The function checks whether the bytes value contains a sequence of
     /// options. It does not check whether the options itself are valid.
-    pub fn from_bytes(bytes: Bytes) -> Result<Self, ShortBuf> {
-        let mut parser = Parser::from_bytes(bytes);
+    pub fn from_octets(octets: O) -> Result<Self, ShortBuf> {
+        let mut parser = Parser::from_octets(octets);
         while parser.remaining() > 0 {
             parser.advance(2)?;
             let len = parser.parse_u16()?;
             parser.advance(len as usize)?;
         }
-        Ok(Opt { bytes: parser.unwrap() })
+        Ok(Opt { octets: parser.unwrap() })
     }
 
     /// Returns an iterator over options of a given type.
     ///
     /// The returned iterator will return only options represented by type
     /// `D` and quietly skip over all the others.
-    pub fn iter<D: OptData>(&self) -> OptIter<D> {
-        OptIter::new(self.bytes.clone())
+    pub fn iter<D: OptData<O>>(&self) -> OptIter<O, D> {
+        OptIter::new(self.octets.clone())
+    }
+}
+
+impl Opt<Bytes> {
+    /// Creates OPT record data from a bytes value.
+    ///
+    /// The function checks whether the bytes value contains a sequence of
+    /// options. It does not check whether the options itself are valid.
+    pub fn from_bytes(bytes: Bytes) -> Result<Self, ShortBuf> {
+        Self::from_octets(bytes)
     }
 }
 
 
 //--- ParseAll, Compose, Compress
 
-impl ParseAll for Opt {
+impl<O: Octets> ParseAll<O> for Opt<O> {
     type Err = ShortBuf;
 
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
-        Self::from_bytes(parser.parse_octets(len)?)
+    fn parse_all(
+        parser: &mut Parser<O>,
+        len: usize
+    ) -> Result<Self, Self::Err> {
+        Self::from_octets(parser.parse_octets(len)?)
     }
 }
 
-impl Compose for Opt {
+impl<O: Octets> Compose for Opt<O> {
     fn compose_len(&self) -> usize {
-        self.bytes.len()
+        self.octets.len()
     }
 
     fn compose<B: BufMut>(&self, buf: &mut B) {
-        buf.put_slice(self.bytes.as_ref())
+        buf.put_slice(self.octets.as_ref())
     }
 }
 
-impl Compress for Opt {
+impl<O: Octets> Compress for Opt<O> {
     fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
         buf.compose(self)
     }
 }
 
-impl RtypeRecordData for Opt {
+impl<O: Octets> RtypeRecordData for Opt<O> {
     const RTYPE: Rtype = Rtype::Opt;
 }
 
 
 //--- Display
 
-impl fmt::Display for Opt {
+impl<O: Octets> fmt::Display for Opt<O> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         // XXX TODO Print this properly.
         f.write_str("OPT ...")
@@ -226,16 +240,16 @@ impl Compose for OptHeader {
 
 /// An entire OPT record.
 #[derive(Clone, Debug)]
-pub struct OptRecord {
+pub struct OptRecord<O=Bytes> {
     udp_payload_size: u16,
     ext_rcode: u8,
     version: u8,
     flags: u16,
-    data: Opt,
+    data: Opt<O>,
 }
 
-impl OptRecord {
-    pub fn from_record<N: ToDname>(record: Record<N, Opt>) -> Self {
+impl<O: Octets> OptRecord<O> {
+    pub fn from_record<N: ToDname>(record: Record<N, Opt<O>>) -> Self {
         OptRecord {
             udp_payload_size: record.class().to_int(),
             ext_rcode: (record.ttl() >> 24) as u8,
@@ -261,7 +275,7 @@ impl OptRecord {
         self.flags & 0x8000 != 0
     }
 
-    pub fn as_opt(&self) -> &Opt {
+    pub fn as_opt(&self) -> &Opt<O> {
         &self.data
     }
 }
@@ -269,8 +283,8 @@ impl OptRecord {
 
 //--- From
 
-impl<N: ToDname> From<Record<N, Opt>> for OptRecord {
-    fn from(record: Record<N, Opt>) -> Self {
+impl<O: Octets, N: ToDname> From<Record<N, Opt<O>>> for OptRecord<O> {
+    fn from(record: Record<N, Opt<O>>) -> Self {
         Self::from_record(record)
     }
 }
@@ -278,16 +292,16 @@ impl<N: ToDname> From<Record<N, Opt>> for OptRecord {
 
 //--- Deref and AsRef
 
-impl ops::Deref for OptRecord {
-    type Target = Opt;
+impl<O: Octets> ops::Deref for OptRecord<O> {
+    type Target = Opt<O>;
 
-    fn deref(&self) -> &Opt {
+    fn deref(&self) -> &Opt<O> {
         &self.data
     }
 }
 
-impl AsRef<Opt> for OptRecord {
-    fn as_ref(&self) -> &Opt {
+impl<O: Octets> AsRef<Opt<O>> for OptRecord<O> {
+    fn as_ref(&self) -> &Opt<O> {
         &self.data
     }
 }
@@ -316,14 +330,14 @@ impl OptionHeader {
     }
 }
 
-impl Parse for OptionHeader {
+impl<O: Octets> Parse<O> for OptionHeader {
     type Err = ShortBuf;
 
-    fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
+    fn parse(parser: &mut Parser<O>) -> Result<Self, Self::Err> {
         Ok(OptionHeader::new(parser.parse_u16()?, parser.parse_u16()?))
     }
 
-    fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
+    fn skip(parser: &mut Parser<O>) -> Result<(), Self::Err> {
         parser.advance(4)
     }
 }
@@ -343,18 +357,21 @@ impl Compose for OptionHeader {
 //------------ OptIter -------------------------------------------------------
 
 #[derive(Clone, Debug)]
-pub struct OptIter<D: OptData> { 
-    parser: Parser,
+pub struct OptIter<O, D: OptData<O>> { 
+    parser: Parser<O>,
     marker: PhantomData<D>
 }
 
-impl<D: OptData> OptIter<D> {
-    fn new(bytes: Bytes) -> Self {
-        OptIter { parser: Parser::from_bytes(bytes), marker: PhantomData }
+impl<O: Octets, D: OptData<O>> OptIter<O, D> {
+    fn new(octets: O) -> Self {
+        OptIter {
+            parser: Parser::from_octets(octets),
+            marker: PhantomData
+        }
     }
 }
 
-impl<D: OptData> Iterator for OptIter<D> {
+impl<O: Octets, D: OptData<O>> Iterator for OptIter<O, D> {
     type Item = Result<D, D::ParseErr>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -369,7 +386,7 @@ impl<D: OptData> Iterator for OptIter<D> {
     }
 }
 
-impl<D: OptData> OptIter<D> {
+impl<O: Octets, D: OptData<O>> OptIter<O, D> {
     fn next_step(&mut self) -> Result<Option<D>, D::ParseErr> {
         let code = self.parser.parse_u16().unwrap().into();
         let len = self.parser.parse_u16().unwrap() as usize;
@@ -380,13 +397,16 @@ impl<D: OptData> OptIter<D> {
 
 //------------ OptData -------------------------------------------------------
 
-pub trait OptData: Compose + Sized {
+pub trait OptData<O=Bytes>: Compose + Sized {
     type ParseErr;
 
     fn code(&self) -> OptionCode;
 
-    fn parse_option(code: OptionCode, parser: &mut Parser, len: usize)
-                    -> Result<Option<Self>, Self::ParseErr>;
+    fn parse_option(
+        code: OptionCode,
+        parser: &mut Parser<O>,
+        len: usize
+    ) -> Result<Option<Self>, Self::ParseErr>;
 }
 
 
@@ -396,13 +416,16 @@ pub trait CodeOptData {
     const CODE: OptionCode;
 }
 
-impl<T: CodeOptData + ParseAll + Compose + Sized> OptData for T {
-    type ParseErr = <Self as ParseAll>::Err;
+impl<O, T: CodeOptData + ParseAll<O> + Compose + Sized> OptData<O> for T {
+    type ParseErr = <Self as ParseAll<O>>::Err;
 
     fn code(&self) -> OptionCode { Self::CODE }
 
-    fn parse_option(code: OptionCode, parser: &mut Parser, len: usize)
-                    -> Result<Option<Self>, Self::ParseErr> {
+    fn parse_option(
+        code: OptionCode,
+        parser: &mut Parser<O>,
+        len: usize
+    ) -> Result<Option<Self>, Self::ParseErr> {
         if code == Self::CODE {
             Self::parse_all(parser, len).map(Some)
         }
@@ -416,13 +439,13 @@ impl<T: CodeOptData + ParseAll + Compose + Sized> OptData for T {
 //------------ UnknownOptData ------------------------------------------------
 
 #[derive(Clone, Debug)]
-pub struct UnknownOptData {
+pub struct UnknownOptData<O=Bytes> {
     code: OptionCode,
-    data: Bytes,
+    data: O,
 }
 
-impl UnknownOptData {
-    pub fn from_bytes(code: OptionCode, data: Bytes) -> Self {
+impl<O> UnknownOptData<O> {
+    pub fn from_octets(code: OptionCode, data: O) -> Self {
         UnknownOptData { code, data }
     }
 
@@ -430,7 +453,7 @@ impl UnknownOptData {
         self.code
     }
 
-    pub fn data(&self) -> &Bytes {
+    pub fn data(&self) -> &O {
         &self.data
     }
 }
@@ -438,7 +461,7 @@ impl UnknownOptData {
 
 //--- Compose
 
-impl Compose for UnknownOptData {
+impl<O: Octets> Compose for UnknownOptData<O> {
     fn compose_len(&self) -> usize {
         self.data.len()
     }
@@ -451,7 +474,7 @@ impl Compose for UnknownOptData {
 
 //--- OptData
 
-impl OptData for UnknownOptData {
+impl<O: Octets> OptData<O> for UnknownOptData<O> {
     type ParseErr = ShortBuf;
 
     fn code(&self) -> OptionCode {
@@ -460,11 +483,11 @@ impl OptData for UnknownOptData {
 
     fn parse_option(
         code: OptionCode,
-        parser: &mut Parser,
+        parser: &mut Parser<O>,
         len: usize
     ) -> Result<Option<Self>, Self::ParseErr> {
         parser.parse_octets(len)
-            .map(|data| Some(Self::from_bytes(code, data)))
+            .map(|data| Some(Self::from_octets(code, data)))
     }
 }
 

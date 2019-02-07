@@ -1,10 +1,11 @@
 //! EDNS Options form RFC 7873
 
 use bytes::BufMut;
-use ::bits::compose::Compose;
-use ::bits::message_builder::OptBuilder;
-use ::bits::parse::{ParseAll, ParseAllError, Parser, ShortBuf};
-use ::iana::OptionCode;
+use crate::bits::compose::Compose;
+use crate::bits::message_builder::OptBuilder;
+use crate::bits::octets::Octets;
+use crate::bits::parse::{ParseAll, ParseAllError, Parser, ShortBuf};
+use crate::iana::OptionCode;
 use super::CodeOptData;
 
 
@@ -31,10 +32,13 @@ impl Cookie {
 
 //--- ParseAll and Compose
 
-impl ParseAll for Cookie {
+impl<O: Octets> ParseAll<O> for Cookie {
     type Err = ParseAllError;
 
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+    fn parse_all(
+        parser: &mut Parser<O>,
+        len: usize
+    ) -> Result<Self, Self::Err> {
         ParseAllError::check(8, len)?;
         let mut res = [0u8; 8];
         parser.parse_buf(&mut res[..])?;

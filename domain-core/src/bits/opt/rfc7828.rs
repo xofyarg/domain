@@ -1,10 +1,11 @@
 //! EDNS Options from RFC 7828
 
 use bytes::BufMut;
-use ::bits::compose::Compose;
-use ::bits::message_builder::OptBuilder;
-use ::bits::parse::{ParseAll, Parser, ParseAllError, ShortBuf};
-use ::iana::OptionCode;
+use crate::bits::compose::Compose;
+use crate::bits::message_builder::OptBuilder;
+use crate::bits::octets::Octets;
+use crate::bits::parse::{ParseAll, Parser, ParseAllError, ShortBuf};
+use crate::iana::OptionCode;
 use super::CodeOptData;
 
 
@@ -31,10 +32,13 @@ impl TcpKeepalive {
 
 //--- ParseAll and Compose
 
-impl ParseAll for TcpKeepalive {
+impl<O: Octets> ParseAll<O> for TcpKeepalive {
     type Err = ParseAllError;
 
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+    fn parse_all(
+        parser: &mut Parser<O>,
+        len: usize
+    ) -> Result<Self, Self::Err> {
         u16::parse_all(parser, len).map(Self::new)
     }
 }

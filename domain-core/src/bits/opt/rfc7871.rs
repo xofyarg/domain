@@ -2,10 +2,11 @@
 
 use std::net::IpAddr;
 use bytes::BufMut;
-use ::bits::compose::Compose;
-use ::bits::message_builder::OptBuilder;
-use ::bits::parse::{ParseAll, Parser, ShortBuf};
-use ::iana::OptionCode;
+use crate::bits::compose::Compose;
+use crate::bits::message_builder::OptBuilder;
+use crate::bits::octets::Octets;
+use crate::bits::parse::{ParseAll, Parser, ShortBuf};
+use crate::iana::OptionCode;
 use super::CodeOptData;
 
 
@@ -39,10 +40,13 @@ impl ClientSubnet {
 //--- ParseAll and Compose
 
 
-impl ParseAll for ClientSubnet {
+impl<O: Octets> ParseAll<O> for ClientSubnet {
     type Err = OptionParseError;
 
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+    fn parse_all(
+        parser: &mut Parser<O>,
+        len: usize
+    ) -> Result<Self, Self::Err> {
         let family = parser.parse_u16()?;
         let source_prefix_len = parser.parse_u8()?;
         let scope_prefix_len = parser.parse_u8()?;

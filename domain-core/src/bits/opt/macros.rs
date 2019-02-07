@@ -6,7 +6,7 @@
 macro_rules! opt_types {
     ( $(
         $module:ident::{
-            $( $opt:ident ),*
+            $( $opt:ident $( <$octets:ident> )* ),*
         };
     )* ) => {
 
@@ -17,11 +17,11 @@ macro_rules! opt_types {
         //------------ AllOptData --------------------------------------------
 
         #[derive(Clone, Debug)]
-        pub enum AllOptData {
+        pub enum AllOptData<O: Octets> {
             $( $(
-                $opt($module::$opt),
+                $opt($module::$opt $(< $octets >)* ),
             )* )*
-            Other(UnknownOptData),
+            Other(UnknownOptData<O>),
 
             #[doc(hidden)]
             __Nonexhaustive(::void::Void),
@@ -30,8 +30,8 @@ macro_rules! opt_types {
         //--- From
 
         $( $(
-            impl From<$opt> for AllOptData {
-                fn from(value: $module::$opt) -> Self {
+            impl<O: Octets> From<$opt $(< $octets >)*> for AllOptData<O> {
+                fn from(value: $module::$opt $(< $octets >)*) -> Self {
                     AllOptData::$opt(value)
                 }
             }
@@ -40,7 +40,7 @@ macro_rules! opt_types {
         
         //--- Compose
 
-        impl Compose for AllOptData {
+        impl<O: Octets> Compose for AllOptData<O> {
             fn compose_len(&self) -> usize {
                 match self {
                     $( $(
@@ -65,13 +65,13 @@ macro_rules! opt_types {
 
         //--- OptData
 
-        impl OptData for AllOptData {
+        impl<O: Octets> OptData<O> for AllOptData<O> {
             type ParseErr = AllOptParseError;
 
             fn code(&self) -> OptionCode {
                 match self {
                     $( $(
-                        &AllOptData::$opt(_) => $opt::CODE,
+                        &AllOptData::$opt(_) => OptionCode::$opt,
                     )* )*
                     &AllOptData::Other(ref inner) => inner.code(),
                     &AllOptData::__Nonexhaustive(_) => unreachable!()
@@ -80,7 +80,7 @@ macro_rules! opt_types {
 
             fn parse_option(
                 code: OptionCode,
-                parser: &mut Parser,
+                parser: &mut Parser<O>,
                 len: usize
             ) -> Result<Option<Self>, Self::ParseErr> {
                 match code {

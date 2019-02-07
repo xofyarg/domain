@@ -2,10 +2,11 @@
 
 use bytes::BufMut;
 use rand::random;
-use ::bits::compose::Compose;
-use ::bits::message_builder::OptBuilder;
-use ::bits::parse::{ParseAll, Parser, ShortBuf};
-use ::iana::OptionCode;
+use crate::bits::compose::Compose;
+use crate::bits::message_builder::OptBuilder;
+use crate::bits::octets::Octets;
+use crate::bits::parse::{ParseAll, Parser, ShortBuf};
+use crate::iana::OptionCode;
 use super::CodeOptData;
 
 
@@ -50,10 +51,13 @@ impl Padding {
 
 //--- ParseAll and Compose
 
-impl ParseAll for Padding {
+impl<O: Octets> ParseAll<O> for Padding {
     type Err = ShortBuf;
 
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+    fn parse_all(
+        parser: &mut Parser<O>,
+        len: usize
+    ) -> Result<Self, Self::Err> {
         // XXX Check whether there really are all zeros.
         parser.advance(len)?;
         Ok(Padding::new(len as u16, PaddingMode::Zero))
