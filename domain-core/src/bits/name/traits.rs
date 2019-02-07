@@ -214,7 +214,7 @@ pub trait ToRelativeDname: Compose + for<'a> ToLabelIter<'a> {
     }
 
     /// Returns the absolute name by chaining it with the root label.
-    fn chain_root(self) -> Chain<Self, Dname>
+    fn chain_root(self) -> Chain<Self, Dname<&'static [u8]>>
     where Self: Sized {
         // Appending the root label will always work.
         Chain::new(self, Dname::root()).unwrap()

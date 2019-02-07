@@ -891,7 +891,6 @@ mod test {
     use super::*;
     use rdata::*;
     use bits::name::*;
-    use bits::rdata::*;
     use bits::message::*;
 
     fn get_built_message() -> Message {

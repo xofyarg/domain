@@ -190,6 +190,18 @@ impl UncertainDname<Bytes> {
     }
 }
 
+impl UncertainDname<&'static  [u8]> {
+    /// Creates a root name atop a static octets slice.
+    pub fn static_root() -> Self {
+        Self::root()
+    }
+
+    /// Creates an empty name atop a static octets slice.
+    pub fn static_empty() -> Self {
+        Self::empty()
+    }
+}
+
 
 //--- Compose
 

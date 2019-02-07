@@ -130,15 +130,6 @@ impl RelativeDname<Bytes> {
         Self::from_octets(bytes)
     }
 
-    /// Creates a relative domain name from an octets slice.
-    ///
-    /// The function will create a new bytes value from the slice’s content.
-    /// If the slice does not contain a correctly encoded, relative domain
-    /// name, the function will fail.
-    pub fn from_slice(slice: &[u8]) -> Result<Self, RelativeDnameError> {
-        Self::from_octets(slice.into())
-    }
-
     /// Returns a reference to the underlying bytes value.
     pub fn as_bytes(&self) -> &Bytes {
         &self.octets
@@ -175,6 +166,25 @@ impl RelativeDname<Bytes> {
     /// [`chain_root`]: #method.chain_root
     pub fn into_absolute(self) -> Dname<Bytes> {
         self.into_builder().into_dname().unwrap()
+    }
+}
+
+impl<'a> RelativeDname<&'a [u8]> {
+    /// Creates a domain name for an octet slice.
+    pub fn from_slice(slice: &'a [u8]) -> Result<Self, RelativeDnameError> {
+        Self::from_octets(slice)
+    }
+}
+
+impl RelativeDname<&'static [u8]> {
+    /// Creates an empty domain name as a static octet slice.
+    pub fn static_empty() -> Self {
+        Self::empty()
+    }
+
+    /// Creates a wildcard domain name as a static octet slice.
+    pub fn static_wildcard() -> Self {
+        Self::wildcard()
     }
 }
 
@@ -666,12 +676,12 @@ mod test {
 
     #[test]
     fn empty() {
-        assert_eq!(RelativeDname::empty().as_slice(), b"");
+        assert_eq!(RelativeDname::static_empty().as_slice(), b"");
     }
 
     #[test]
     fn wildcard() {
-        assert_eq!(RelativeDname::wildcard().as_slice(), b"\x01*");
+        assert_eq!(RelativeDname::static_wildcard().as_slice(), b"\x01*");
     }
 
     #[test]
@@ -725,9 +735,12 @@ mod test {
 
     #[test]
     fn into_absolute() {
-        assert_eq!(RelativeDname::from_slice(b"\x03www\x07example\x03com")
-                                 .unwrap().into_absolute().as_slice(),
-                   b"\x03www\x07example\x03com\0");
+        assert_eq!(
+            RelativeDname::from_bytes(
+                Bytes::from_static(b"\x03www\x07example\x03com")
+            ).unwrap().into_absolute().as_slice(),
+            b"\x03www\x07example\x03com\0"
+        );
     }
 
     // chain is tested with the Chain type.
@@ -743,8 +756,8 @@ mod test {
     fn iter() {
         use ::bits::name::dname::test::cmp_iter;
 
-        cmp_iter(RelativeDname::empty().iter(), &[]);
-        cmp_iter(RelativeDname::wildcard().iter(), &[b"*"]);
+        cmp_iter(RelativeDname::static_empty().iter(), &[]);
+        cmp_iter(RelativeDname::static_wildcard().iter(), &[b"*"]);
         cmp_iter(RelativeDname::from_slice(b"\x03www\x07example\x03com")
                                .unwrap().iter(),
                  &[b"www", b"example", b"com"]);
@@ -754,8 +767,8 @@ mod test {
     fn iter_back() {
         use ::bits::name::dname::test::cmp_iter_back;
 
-        cmp_iter_back(RelativeDname::empty().iter(), &[]);
-        cmp_iter_back(RelativeDname::wildcard().iter(), &[b"*"]);
+        cmp_iter_back(RelativeDname::static_empty().iter(), &[]);
+        cmp_iter_back(RelativeDname::static_wildcard().iter(), &[b"*"]);
         cmp_iter_back(RelativeDname::from_slice(b"\x03www\x07example\x03com")
                                     .unwrap().iter(),
                       &[b"com", b"example", b"www"]);
@@ -763,8 +776,8 @@ mod test {
 
     #[test]
     fn label_count() {
-        assert_eq!(RelativeDname::empty().label_count(), 0);
-        assert_eq!(RelativeDname::wildcard().label_count(), 1);
+        assert_eq!(RelativeDname::static_empty().label_count(), 0);
+        assert_eq!(RelativeDname::static_wildcard().label_count(), 1);
         assert_eq!(RelativeDname::from_slice(b"\x03www\x07example\x03com")
                                  .unwrap().label_count(),
                    3);
@@ -772,7 +785,7 @@ mod test {
 
     #[test]
     fn first() {
-        assert_eq!(RelativeDname::empty().first(), None);
+        assert_eq!(RelativeDname::static_empty().first(), None);
         assert_eq!(RelativeDname::from_slice(b"\x03www").unwrap()
                                  .first().unwrap().as_slice(),
                    b"www");
@@ -783,7 +796,7 @@ mod test {
 
     #[test]
     fn last() {
-        assert_eq!(RelativeDname::empty().last(), None);
+        assert_eq!(RelativeDname::static_empty().last(), None);
         assert_eq!(RelativeDname::from_slice(b"\x03www").unwrap()
                                  .last().unwrap().as_slice(),
                    b"www");
@@ -794,7 +807,7 @@ mod test {
 
     #[test]
     fn ndots() {
-        assert_eq!(RelativeDname::empty().ndots(), 0);
+        assert_eq!(RelativeDname::static_empty().ndots(), 0);
         assert_eq!(RelativeDname::from_slice(b"\x03www").unwrap().ndots(),
                    0);
         assert_eq!(RelativeDname::from_slice(b"\x03www\x07example").unwrap()
@@ -805,7 +818,7 @@ mod test {
     #[test]
     fn starts_with() {
         let matrix = [
-            ( RelativeDname::empty(),
+            ( RelativeDname::static_empty(),
               [ true, false, false, false, false, false ]),
             ( RelativeDname::from_slice(b"\x03www").unwrap(),
               [ true, true, false, false, false, false ]),
@@ -830,7 +843,7 @@ mod test {
     #[test]
     fn ends_with() {
         let matrix = [
-            ( RelativeDname::empty(),
+            ( RelativeDname::static_empty(),
               [ true, false, false, false, false, false ]),
             ( RelativeDname::from_slice(b"\x03www").unwrap(),
               [ true, true, false, false, false, false ]),
@@ -878,50 +891,50 @@ mod test {
     }
 
     #[test]
-    fn slice() {
+    fn range() {
         let wec = RelativeDname::from_slice(b"\x03www\x07example\x03com")
                                 .unwrap();
-        assert_eq!(wec.slice(0, 4).as_slice(), b"\x03www");
-        assert_eq!(wec.slice(0, 12).as_slice(), b"\x03www\x07example");
-        assert_eq!(wec.slice(4, 12).as_slice(), b"\x07example");
-        assert_eq!(wec.slice(4, 16).as_slice(), b"\x07example\x03com");
+        assert_eq!(wec.range(0, 4).as_slice(), b"\x03www");
+        assert_eq!(wec.range(0, 12).as_slice(), b"\x03www\x07example");
+        assert_eq!(wec.range(4, 12).as_slice(), b"\x07example");
+        assert_eq!(wec.range(4, 16).as_slice(), b"\x07example\x03com");
 
-        assert_panic!(wec.slice(0,3));
-        assert_panic!(wec.slice(1,4));
-        assert_panic!(wec.slice(0,11));
-        assert_panic!(wec.slice(1,12));
-        assert_panic!(wec.slice(0,17));
-        assert_panic!(wec.slice(4,17));
-        assert_panic!(wec.slice(0,18));
+        assert_panic!(wec.range(0,3));
+        assert_panic!(wec.range(1,4));
+        assert_panic!(wec.range(0,11));
+        assert_panic!(wec.range(1,12));
+        assert_panic!(wec.range(0,17));
+        assert_panic!(wec.range(4,17));
+        assert_panic!(wec.range(0,18));
     }
 
     #[test]
-    fn slice_from() {
+    fn range_from() {
         let wec = RelativeDname::from_slice(b"\x03www\x07example\x03com")
                                 .unwrap();
 
-        assert_eq!(wec.slice_from(0).as_slice(),
+        assert_eq!(wec.range_from(0).as_slice(),
                    b"\x03www\x07example\x03com");
-        assert_eq!(wec.slice_from(4).as_slice(), b"\x07example\x03com");
-        assert_eq!(wec.slice_from(12).as_slice(), b"\x03com");
-        assert_eq!(wec.slice_from(16).as_slice(), b"");
+        assert_eq!(wec.range_from(4).as_slice(), b"\x07example\x03com");
+        assert_eq!(wec.range_from(12).as_slice(), b"\x03com");
+        assert_eq!(wec.range_from(16).as_slice(), b"");
 
-        assert_panic!(wec.slice_from(17));
-        assert_panic!(wec.slice_from(18));
+        assert_panic!(wec.range_from(17));
+        assert_panic!(wec.range_from(18));
     }
 
     #[test]
-    fn slice_to() {
+    fn range_to() {
         let wec = RelativeDname::from_slice(b"\x03www\x07example\x03com")
                                 .unwrap();
 
-        assert_eq!(wec.slice_to(0).as_slice(), b"");
-        assert_eq!(wec.slice_to(4).as_slice(), b"\x03www");
-        assert_eq!(wec.slice_to(12).as_slice(), b"\x03www\x07example");
-        assert_eq!(wec.slice_to(16).as_slice(), b"\x03www\x07example\x03com");
+        assert_eq!(wec.range_to(0).as_slice(), b"");
+        assert_eq!(wec.range_to(4).as_slice(), b"\x03www");
+        assert_eq!(wec.range_to(12).as_slice(), b"\x03www\x07example");
+        assert_eq!(wec.range_to(16).as_slice(), b"\x03www\x07example\x03com");
 
-        assert_panic!(wec.slice_to(17));
-        assert_panic!(wec.slice_to(18));
+        assert_panic!(wec.range_to(17));
+        assert_panic!(wec.range_to(18));
     }
 
     #[test]
@@ -1063,7 +1076,7 @@ mod test {
         assert_eq!(tmp.as_slice(), b"\x03www\x07example");
 
         let mut tmp = wec.clone();
-        assert_eq!(tmp.strip_suffix(&RelativeDname::empty()), Ok(()));
+        assert_eq!(tmp.strip_suffix(&RelativeDname::static_empty()), Ok(()));
         assert_eq!(tmp.as_slice(), b"\x03www\x07example\x03com");
 
         assert_eq!(wec.clone().strip_suffix(&wen), Err(StripSuffixError));

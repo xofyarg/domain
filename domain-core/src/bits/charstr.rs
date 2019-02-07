@@ -146,6 +146,16 @@ impl CharStr<Bytes> {
     }
 }
 
+impl<'a> CharStr<&'a [u8]> {
+    /// Creates a character string from a slice.
+    ///
+    /// Returns succesfully if the octets can indeed be used as a
+    /// character string, i.e., they are not longer than 255.
+    pub fn from_slice(slice: &'a [u8]) -> Result<Self, CharStrError> {
+        Self::from_octets(slice)
+    }
+}
+
 
 //--- FromStr
 
@@ -555,24 +565,12 @@ mod test {
     use ::master::scan::Symbol;
 
     #[test]
-    fn from_slice() {
+    fn from_octets() {
         assert_eq!(CharStr::from_slice(b"01234").unwrap().as_slice(),
                    b"01234");
         assert_eq!(CharStr::from_slice(b"").unwrap().as_slice(), b"");
         assert!(CharStr::from_slice(&vec![0; 255]).is_ok());
         assert!(CharStr::from_slice(&vec![0; 256]).is_err());
-    }
-
-    #[test]
-    fn from_bytes() {
-        assert_eq!(CharStr::from_bytes(Bytes::from_static(b"01234"))
-                           .unwrap() .as_slice(),
-                   b"01234");
-        assert_eq!(CharStr::from_bytes(Bytes::from_static(b""))
-                           .unwrap().as_slice(),
-                   b"");
-        assert!(CharStr::from_bytes(vec![0; 255].into()).is_ok());
-        assert!(CharStr::from_bytes(vec![0; 256].into()).is_err());
     }
 
     #[test]
@@ -603,7 +601,7 @@ mod test {
     fn parse() {
         use ::bits::parse::{Parse, Parser, ShortBuf};
 
-        let mut parser = Parser::from_static(b"12\x03foo\x02bartail");
+        let mut parser = Parser::from_slice(b"12\x03foo\x02bartail");
         parser.advance(2).unwrap();
         let foo = CharStr::parse(&mut parser).unwrap();
         let bar = CharStr::parse(&mut parser).unwrap();
@@ -611,7 +609,7 @@ mod test {
         assert_eq!(bar.as_slice(), b"ba");
         assert_eq!(parser.peek_all(), b"rtail");
 
-        assert_eq!(CharStr::parse(&mut Parser::from_static(b"\x04foo")),
+        assert_eq!(CharStr::parse(&mut Parser::from_slice(b"\x04foo")),
                    Err(ShortBuf))
     }
 
@@ -619,7 +617,7 @@ mod test {
     fn parse_all() {
         use ::bits::parse::{ParseAll, ParseAllError, Parser};
 
-        let mut parser = Parser::from_static(b"12\x03foo12");
+        let mut parser = Parser::from_slice(b"12\x03foo12");
         parser.advance(2).unwrap();
         assert_eq!(CharStr::parse_all(&mut parser.clone(), 5),
                    Err(ParseAllError::TrailingData));
@@ -631,7 +629,7 @@ mod test {
         assert_eq!(bar, b'1');
         assert_eq!(parser.peek_all(), b"2");
         
-        assert_eq!(CharStr::parse_all(&mut Parser::from_static(b"\x04foo"), 5),
+        assert_eq!(CharStr::parse_all(&mut Parser::from_slice(b"\x04foo"), 5),
                    Err(ParseAllError::ShortBuf));
     }
 
@@ -641,13 +639,13 @@ mod test {
         use bits::compose::Compose;
 
         let mut buf = BytesMut::with_capacity(10);
-        let val = CharStr::from_bytes(Bytes::from_static(b"foo")).unwrap();
+        let val = CharStr::from_slice(b"foo").unwrap();
         assert_eq!(val.compose_len(), 4);
         val.compose(&mut buf);
         assert_eq!(buf, &b"\x03foo"[..]);
 
         let mut buf = BytesMut::with_capacity(10);
-        let val = CharStr::from_bytes(Bytes::from_static(b"")).unwrap();
+        let val = CharStr::from_slice(b"").unwrap();
         assert_eq!(val.compose_len(), 1);
         val.compose(&mut buf);
         assert_eq!(buf, &b"\x00"[..]);

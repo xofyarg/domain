@@ -57,10 +57,24 @@ pub struct Parser<O=Bytes> {
 
 impl<O> Parser<O> {
     /// Creates a new parser atop an octets value.
-    pub fn from_bytes(octets: O) -> Self {
+    pub fn from_octets(octets: O) -> Self {
         Parser { octets, pos: 0 }
     }
+}
 
+impl Parser<Bytes> {
+    pub fn from_bytes(bytes: Bytes) -> Self {
+        Parser::from_octets(bytes)
+    }
+}
+
+impl<'a> Parser<&'a [u8]> {
+    pub fn from_slice(slice: &'a [u8]) -> Self {
+        Parser::from_octets(slice)
+    }
+}
+
+impl<O: Octets> Parser<O> {
     /// Extracts the underlying octets value from the parser.
     ///
     /// This will be the same octets value the parser was created with. It
@@ -68,9 +82,7 @@ impl<O> Parser<O> {
     pub fn unwrap(self) -> O {
         self.octets
     }
-}
 
-impl<O> Parser<O> {
     /// Returns a reference to the underlying octets.
     pub fn as_octets(&self) -> &O {
         &self.octets
@@ -80,9 +92,7 @@ impl<O> Parser<O> {
     pub fn pos(&self) -> usize {
         self.pos
     }
-}
 
-impl<O: Octets> Parser<O> {
     /// Returns a reference to the underlying byte slice.
     pub fn as_slice(&self) -> &[u8] {
         self.octets.as_ref()
@@ -578,7 +588,7 @@ mod test {
 
     #[test]
     fn pos_seek_remaining() {
-        let mut parser = Parser::from_static(b"0123456789");
+        let mut parser = Parser::from_slice(b"0123456789");
         assert_eq!(parser.peek(1).unwrap(), b"0");
         assert_eq!(parser.pos(), 0);
         assert_eq!(parser.remaining(), 10);
@@ -597,7 +607,7 @@ mod test {
 
     #[test]
     fn peek_check_len() {
-        let mut parser = Parser::from_static(b"0123456789");
+        let mut parser = Parser::from_slice(b"0123456789");
         assert_eq!(parser.peek(2), Ok(b"01".as_ref()));
         assert_eq!(parser.check_len(2), Ok(()));
         assert_eq!(parser.peek(10), Ok(b"0123456789".as_ref()));
@@ -615,7 +625,7 @@ mod test {
 
     #[test]
     fn peek_all() {
-        let mut parser = Parser::from_static(b"0123456789");
+        let mut parser = Parser::from_slice(b"0123456789");
         assert_eq!(parser.peek_all(), b"0123456789");
         parser.advance(2).unwrap();
         assert_eq!(parser.peek_all(), b"23456789");
@@ -623,7 +633,7 @@ mod test {
 
     #[test]
     fn advance() {
-        let mut parser = Parser::from_static(b"0123456789");
+        let mut parser = Parser::from_slice(b"0123456789");
         assert_eq!(parser.pos(), 0);
         assert_eq!(parser.peek(1).unwrap(), b"0");
         assert_eq!(parser.advance(2), Ok(()));
@@ -636,17 +646,17 @@ mod test {
     }
 
     #[test]
-    fn parse_bytes() {
-        let mut parser = Parser::from_static(b"0123456789");
-        assert_eq!(parser.parse_bytes(2).unwrap().as_ref(), b"01");
-        assert_eq!(parser.parse_bytes(2).unwrap().as_ref(), b"23");
-        assert_eq!(parser.parse_bytes(7), Err(ShortBuf));
-        assert_eq!(parser.parse_bytes(6).unwrap().as_ref(), b"456789");
+    fn parse_octets() {
+        let mut parser = Parser::from_slice(b"0123456789");
+        assert_eq!(parser.parse_octets(2).unwrap().as_ref(), b"01");
+        assert_eq!(parser.parse_octets(2).unwrap().as_ref(), b"23");
+        assert_eq!(parser.parse_octets(7), Err(ShortBuf));
+        assert_eq!(parser.parse_octets(6).unwrap().as_ref(), b"456789");
     }
 
     #[test]
     fn parse_buf() {
-        let mut parser = Parser::from_static(b"0123456789");
+        let mut parser = Parser::from_slice(b"0123456789");
         let mut buf = [0u8; 2];
         assert_eq!(parser.parse_buf(&mut buf), Ok(()));
         assert_eq!(&buf, b"01");
@@ -661,7 +671,7 @@ mod test {
 
     #[test]
     fn parse_i8() {
-        let mut parser = Parser::from_static(b"\x12\xd6");
+        let mut parser = Parser::from_slice(b"\x12\xd6");
         assert_eq!(parser.parse_i8(), Ok(0x12));
         assert_eq!(parser.parse_i8(), Ok(-42));
         assert_eq!(parser.parse_i8(), Err(ShortBuf));
@@ -669,7 +679,7 @@ mod test {
 
     #[test]
     fn parse_u8() {
-        let mut parser = Parser::from_static(b"\x12\xd6");
+        let mut parser = Parser::from_slice(b"\x12\xd6");
         assert_eq!(parser.parse_u8(), Ok(0x12));
         assert_eq!(parser.parse_u8(), Ok(0xd6));
         assert_eq!(parser.parse_u8(), Err(ShortBuf));
@@ -677,7 +687,7 @@ mod test {
 
     #[test]
     fn parse_i16() {
-        let mut parser = Parser::from_static(b"\x12\x34\xef\x6e\0");
+        let mut parser = Parser::from_slice(b"\x12\x34\xef\x6e\0");
         assert_eq!(parser.parse_i16(), Ok(0x1234));
         assert_eq!(parser.parse_i16(), Ok(-4242));
         assert_eq!(parser.parse_i16(), Err(ShortBuf));
@@ -685,7 +695,7 @@ mod test {
 
     #[test]
     fn parse_u16() {
-        let mut parser = Parser::from_static(b"\x12\x34\xef\x6e\0");
+        let mut parser = Parser::from_slice(b"\x12\x34\xef\x6e\0");
         assert_eq!(parser.parse_u16(), Ok(0x1234));
         assert_eq!(parser.parse_u16(), Ok(0xef6e));
         assert_eq!(parser.parse_u16(), Err(ShortBuf));
@@ -693,7 +703,7 @@ mod test {
 
     #[test]
     fn parse_i32() {
-        let mut parser = Parser::from_static(
+        let mut parser = Parser::from_slice(
             b"\x12\x34\x56\x78\xfd\x78\xa8\x4e\0\0\0");
         assert_eq!(parser.parse_i32(), Ok(0x12345678));
         assert_eq!(parser.parse_i32(), Ok(-42424242));
@@ -702,7 +712,7 @@ mod test {
 
     #[test]
     fn parse_u32() {
-        let mut parser = Parser::from_static(
+        let mut parser = Parser::from_slice(
             b"\x12\x34\x56\x78\xfd\x78\xa8\x4e\0\0\0");
         assert_eq!(parser.parse_u32(), Ok(0x12345678));
         assert_eq!(parser.parse_u32(), Ok(0xfd78a84e));

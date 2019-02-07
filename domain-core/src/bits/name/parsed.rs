@@ -710,7 +710,7 @@ mod test {
 
         ($bytes:expr, $start:expr, $len:expr, $compressed:expr) => {
             {
-                let mut parser = Parser::from_static($bytes);
+                let mut parser = Parser::from_slice($bytes);
                 parser.advance($start).unwrap();
                 ParsedDname { parser, len: $len, compressed: $compressed }
             }
@@ -773,8 +773,8 @@ mod test {
         cmp_iter_back(name!(twice).iter(), labels);
     }
 
-    fn cmp_iter_suffixes<I>(iter: I, labels: &[&[u8]])
-    where I: Iterator<Item=ParsedDname> {
+    fn cmp_iter_suffixes<'a, I>(iter: I, labels: &[&[u8]])
+    where I: Iterator<Item=ParsedDname<&'a [u8]>> {
         for (name, labels) in iter.zip(labels) {
             let mut iter = name.iter();
             let labels = Dname::from_slice(labels).unwrap();
@@ -824,13 +824,13 @@ mod test {
         let once_wec = name!(once);
         let twice_wec = name!(twice);
 
-        let test = Dname::root();
+        let test = Dname::static_root();
         assert!( root.starts_with(&test));
         assert!(!flat_wec.starts_with(&test));
         assert!(!once_wec.starts_with(&test));
         assert!(!twice_wec.starts_with(&test));
 
-        let test = RelativeDname::empty();
+        let test = RelativeDname::static_empty();
         assert!(root.starts_with(&test));
         assert!(flat_wec.starts_with(&test));
         assert!(once_wec.starts_with(&test));
@@ -905,7 +905,7 @@ mod test {
         }
     }
 
-    fn split_first_wec(mut name: ParsedDname) {
+    fn split_first_wec<'a>(mut name: ParsedDname<&'a [u8]>) {
         assert_eq!(name.clone().into_bytes(),
                    b"\x03www\x07example\x03com\0".as_ref());
         assert_eq!(name.split_first().unwrap().as_slice(),
@@ -931,7 +931,7 @@ mod test {
         split_first_wec(name!(twice));
     }
 
-    fn parent_wec(mut name: ParsedDname) {
+    fn parent_wec<'a>(mut name: ParsedDname<&'a [u8]>) {
         assert_eq!(name.clone().into_bytes(),
                    b"\x03www\x07example\x03com\0".as_ref());
         assert_eq!(name.parent(), true);
@@ -954,27 +954,34 @@ mod test {
         parent_wec(name!(twice));
     }
 
-    fn name_eq(parsed: ParsedDname, name: ParsedDname) {
+    fn name_eq<'a, 'b>(
+        parsed: ParsedDname<&'a [u8]>,
+        name: ParsedDname<&'b [u8]>
+    ) {
         assert_eq!(parsed.parser.as_slice(), name.parser.as_slice());
         assert_eq!(parsed.parser.pos(), name.parser.pos());
         assert_eq!(parsed.len, name.len);
         assert_eq!(parsed.compressed, name.compressed);
     }
 
-    fn parse(mut parser: Parser, equals: ParsedDname, compose_len: usize) {
+    fn parse<'a, 'b>(
+        mut parser: Parser<&'a [u8]>,
+        equals: ParsedDname<&'b [u8]>,
+        compose_len: usize
+    ) {
         let end = parser.pos() + compose_len;
         name_eq(ParsedDname::parse(&mut parser).unwrap(), equals);
         assert_eq!(parser.pos(), end);
     }
 
-    fn skip(mut name: ParsedDname, len: usize) {
+    fn skip<'a>(mut name: ParsedDname<&'a [u8]>, len: usize) {
         let end = name.parser.pos() + len;
         assert_eq!(ParsedDname::skip(&mut name.parser), Ok(()));
         assert_eq!(name.parser.pos(), end);
     }
 
-    fn p(slice: &'static [u8], pos: usize) -> Parser {
-        let mut res = Parser::from_static(slice);
+    fn p(slice: &'static [u8], pos: usize) -> Parser<&'static [u8]> {
+        let mut res = Parser::from_slice(slice);
         res.advance(pos).unwrap();
         res
     }
@@ -1089,7 +1096,7 @@ mod test {
 
     #[test]
     fn compose() {
-        fn step(name: ParsedDname, result: &[u8]) {
+        fn step<'a>(name: ParsedDname<&'a [u8]>, result: &[u8]) {
             assert_eq!(name.compose_len(), result.len());
             let mut buf = BytesMut::with_capacity(result.len());
             name.compose(&mut buf);

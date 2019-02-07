@@ -39,7 +39,7 @@ pub struct Dname<O=Bytes> {
 
 /// # Creation and Conversion
 ///
-impl<O: Octets> Dname<O> {
+impl<O> Dname<O> {
     /// Creates a domain name from the underlying octets without any check.
     ///
     /// Since this will allow to actually construct an incorrectly encoded
@@ -48,13 +48,14 @@ impl<O: Octets> Dname<O> {
         Dname { octets }
     }
 
-    /// Creates a domain name representing the root.
-    ///
-    /// The resulting domain name will consist of the root label only.
-    pub fn root() -> Self {
-        unsafe { Self::from_octets_unchecked(O::from_static(b"\0")) }
+    /// Converts the octets of a name into a different octets type.
+    pub fn convert_octets<P: From<O>>(self) -> Dname<P> {
+        unsafe { Dname::from_octets_unchecked(self.octets.into()) }
     }
+}
 
+
+impl<O: Octets> Dname<O> {
     /// Creates a domain name from a octets.
     ///
     /// This will only succeed if `octets` contains a properly encoded
@@ -85,6 +86,13 @@ impl<O: Octets> Dname<O> {
         Ok(unsafe { Dname::from_octets_unchecked(octets) })
     }
 
+    /// Creates a domain name representing the root.
+    ///
+    /// The resulting domain name will consist of the root label only.
+    pub fn root() -> Self {
+        unsafe { Self::from_octets_unchecked(O::from_static(b"\0")) }
+    }
+
     /// Returns a reference to the underlying octets.
     pub fn as_octets(&self) -> &O {
         &self.octets
@@ -106,6 +114,7 @@ impl<O: Octets> Dname<O> {
 }
 
 impl Dname<Bytes> {
+    /// Creates a domain name for a bytes value.
     pub fn from_bytes(bytes: Bytes) -> Result<Self, DnameOctetsError> {
         Self::from_octets(bytes)
     }
@@ -141,12 +150,27 @@ impl Dname<Bytes> {
     }
 }
 
+impl<'a> Dname<&'a [u8]> {
+    /// Creates a domain name for an octet slice.
+    pub fn from_slice(slice: &'a [u8]) -> Result<Self, DnameOctetsError> {
+        Self::from_octets(slice)
+    }
+}
+
+impl Dname<&'static [u8]> {
+    /// Creates a root name as a static octet slice.
+    pub fn static_root() -> Self {
+        Dname::root()
+    }
+}
+
+
 /// # Properties
 ///
 /// More of the usual methods on byte sequences, such as
 /// [`len`](#method.len), are available via
 /// [deref to `Bytes`](#deref-methods).
-impl Dname {
+impl<O: Octets> Dname<O> {
     /// Returns whether the name is the root label only.
     pub fn is_root(&self) -> bool {
         self.len() == 1
@@ -801,7 +825,7 @@ pub(crate) mod test {
 
     #[test]
     fn root() {
-        assert_eq!(Dname::root().as_slice(), b"\0");
+        assert_eq!(Dname::static_root().as_slice(), b"\0");
     }
 
     #[test]
@@ -870,7 +894,7 @@ pub(crate) mod test {
     fn is_root() {
         assert_eq!(Dname::from_slice(b"\0").unwrap().is_root(), true);
         assert_eq!(Dname::from_slice(b"\x03www\0").unwrap().is_root(), false);
-        assert_eq!(Dname::root().is_root(), true);
+        assert_eq!(Dname::static_root().is_root(), true);
     }
 
     pub fn cmp_iter<I>(mut iter: I, labels: &[&[u8]])
@@ -891,7 +915,7 @@ pub(crate) mod test {
 
     #[test]
     fn iter() {
-        cmp_iter(Dname::root().iter(), &[b""]);
+        cmp_iter(Dname::static_root().iter(), &[b""]);
         cmp_iter(Dname::from_slice(b"\x03www\x07example\x03com\0")
                        .unwrap().iter(),
                  &[b"www", b"example", b"com", b""]);
@@ -915,7 +939,7 @@ pub(crate) mod test {
 
     #[test]
     fn iter_back() {
-        cmp_iter_back(Dname::root().iter(), &[b""]);
+        cmp_iter_back(Dname::static_root().iter(), &[b""]);
         cmp_iter_back(Dname::from_slice(b"\x03www\x07example\x03com\0")
                             .unwrap().iter(),
                       &[b"", b"com", b"example", b"www"]);
@@ -923,7 +947,7 @@ pub(crate) mod test {
 
     #[test]
     fn iter_suffixes() {
-        cmp_iter(Dname::root().iter_suffixes(), &[b"\0"]);
+        cmp_iter(Dname::static_root().iter_suffixes(), &[b"\0"]);
         cmp_iter(Dname::from_slice(b"\x03www\x07example\x03com\0")
                        .unwrap().iter_suffixes(),
                  &[b"\x03www\x07example\x03com\0", b"\x07example\x03com\0",
@@ -932,7 +956,7 @@ pub(crate) mod test {
 
     #[test]
     fn label_count() {
-        assert_eq!(Dname::root().label_count(), 1);
+        assert_eq!(Dname::static_root().label_count(), 1);
         assert_eq!(Dname::from_slice(b"\x03www\x07example\x03com\0").unwrap()
                          .label_count(),
                    4);
@@ -940,7 +964,7 @@ pub(crate) mod test {
 
     #[test]
     fn first() {
-        assert_eq!(Dname::root().first().as_slice(), b"");
+        assert_eq!(Dname::static_root().first().as_slice(), b"");
         assert_eq!(Dname::from_slice(b"\x03www\x07example\x03com\0").unwrap()
                          .first().as_slice(),
                    b"www");
@@ -950,7 +974,7 @@ pub(crate) mod test {
 
     #[test]
     fn last() {
-        assert_eq!(Dname::root().last().as_slice(), b"");
+        assert_eq!(Dname::static_root().last().as_slice(), b"");
         assert_eq!(Dname::from_slice(b"\x03www\x07example\x03com\0").unwrap()
                          .last().as_slice(),
                    b"");
@@ -958,14 +982,14 @@ pub(crate) mod test {
 
     #[test]
     fn starts_with() {
-        let root = Dname::root();
+        let root = Dname::static_root();
         let wecr = Dname::from_slice(b"\x03www\x07example\x03com\0").unwrap();
 
         assert!(root.starts_with(&root));
         assert!(wecr.starts_with(&wecr));
         
-        assert!( root.starts_with(&RelativeDname::empty()));
-        assert!( wecr.starts_with(&RelativeDname::empty()));
+        assert!( root.starts_with(&RelativeDname::static_empty()));
+        assert!( wecr.starts_with(&RelativeDname::static_empty()));
         
         let test = RelativeDname::from_slice(b"\x03www").unwrap();
         assert!(!root.starts_with(&test));
@@ -999,7 +1023,7 @@ pub(crate) mod test {
 
     #[test]
     fn ends_with() {
-        let root = Dname::root();
+        let root = Dname::static_root();
         let wecr = Dname::from_slice(b"\x03www\x07example\x03com\0").unwrap();
 
         for name in wecr.iter_suffixes() {
@@ -1039,74 +1063,74 @@ pub(crate) mod test {
     }
 
     #[test]
-    fn slice() {
+    fn range() {
         let wecr = Dname::from_slice(b"\x03www\x07example\x03com\0").unwrap();
 
-        assert_eq!(wecr.slice(0, 4).as_slice(), b"\x03www");
-        assert_eq!(wecr.slice(0, 12).as_slice(), b"\x03www\x07example");
-        assert_eq!(wecr.slice(4, 12).as_slice(), b"\x07example");
-        assert_eq!(wecr.slice(4, 16).as_slice(), b"\x07example\x03com");
+        assert_eq!(wecr.range(0, 4).as_slice(), b"\x03www");
+        assert_eq!(wecr.range(0, 12).as_slice(), b"\x03www\x07example");
+        assert_eq!(wecr.range(4, 12).as_slice(), b"\x07example");
+        assert_eq!(wecr.range(4, 16).as_slice(), b"\x07example\x03com");
 
-        assert_panic!(wecr.slice(0,3));
-        assert_panic!(wecr.slice(1,4));
-        assert_panic!(wecr.slice(0,11));
-        assert_panic!(wecr.slice(1,12));
-        assert_panic!(wecr.slice(0,17));
-        assert_panic!(wecr.slice(4,17));
-        assert_panic!(wecr.slice(0,18));
+        assert_panic!(wecr.range(0,3));
+        assert_panic!(wecr.range(1,4));
+        assert_panic!(wecr.range(0,11));
+        assert_panic!(wecr.range(1,12));
+        assert_panic!(wecr.range(0,17));
+        assert_panic!(wecr.range(4,17));
+        assert_panic!(wecr.range(0,18));
     }
 
     #[test]
-    fn slice_from() {
+    fn range_from() {
         let wecr = Dname::from_slice(b"\x03www\x07example\x03com\0").unwrap();
 
-        assert_eq!(wecr.slice_from(0).as_slice(),
+        assert_eq!(wecr.range_from(0).as_slice(),
                    b"\x03www\x07example\x03com\0");
-        assert_eq!(wecr.slice_from(4).as_slice(), b"\x07example\x03com\0");
-        assert_eq!(wecr.slice_from(12).as_slice(), b"\x03com\0");
-        assert_eq!(wecr.slice_from(16).as_slice(), b"\0");
+        assert_eq!(wecr.range_from(4).as_slice(), b"\x07example\x03com\0");
+        assert_eq!(wecr.range_from(12).as_slice(), b"\x03com\0");
+        assert_eq!(wecr.range_from(16).as_slice(), b"\0");
 
-        assert_panic!(wecr.slice_from(17));
-        assert_panic!(wecr.slice_from(18));
+        assert_panic!(wecr.range_from(17));
+        assert_panic!(wecr.range_from(18));
     }
 
     #[test]
-    fn slice_to() {
+    fn range_to() {
         let wecr = Dname::from_slice(b"\x03www\x07example\x03com\0").unwrap();
 
-        assert_eq!(wecr.slice_to(0).as_slice(), b"");
-        assert_eq!(wecr.slice_to(4).as_slice(), b"\x03www");
-        assert_eq!(wecr.slice_to(12).as_slice(), b"\x03www\x07example");
-        assert_eq!(wecr.slice_to(16).as_slice(), b"\x03www\x07example\x03com");
+        assert_eq!(wecr.range_to(0).as_slice(), b"");
+        assert_eq!(wecr.range_to(4).as_slice(), b"\x03www");
+        assert_eq!(wecr.range_to(12).as_slice(), b"\x03www\x07example");
+        assert_eq!(wecr.range_to(16).as_slice(), b"\x03www\x07example\x03com");
 
-        assert_panic!(wecr.slice_to(17));
-        assert_panic!(wecr.slice_to(18));
+        assert_panic!(wecr.range_to(17));
+        assert_panic!(wecr.range_to(18));
     }
 
     #[test]
-    fn split_off() {
+    fn split_at() {
         let wecr = Dname::from_slice(b"\x03www\x07example\x03com\0").unwrap();
 
-        let (left, right) = wecr.clone().split_off(0);
+        let (left, right) = wecr.clone().split_at(0);
         assert_eq!(left.as_slice(), b"");
         assert_eq!(right.as_slice(), b"\x03www\x07example\x03com\0");
 
-        let (left, right) = wecr.clone().split_off(4);
+        let (left, right) = wecr.clone().split_at(4);
         assert_eq!(left.as_slice(), b"\x03www");
         assert_eq!(right.as_slice(), b"\x07example\x03com\0");
 
-        let (left, right) = wecr.clone().split_off(12);
+        let (left, right) = wecr.clone().split_at(12);
         assert_eq!(left.as_slice(), b"\x03www\x07example");
         assert_eq!(right.as_slice(), b"\x03com\0");
 
-        let (left, right) = wecr.clone().split_off(16);
+        let (left, right) = wecr.clone().split_at(16);
         assert_eq!(left.as_slice(), b"\x03www\x07example\x03com");
         assert_eq!(right.as_slice(), b"\0");
 
-        assert_panic!(wecr.clone().split_off(1));
-        assert_panic!(wecr.clone().split_off(14));
-        assert_panic!(wecr.clone().split_off(17));
-        assert_panic!(wecr.clone().split_off(18));
+        assert_panic!(wecr.clone().split_at(1));
+        assert_panic!(wecr.clone().split_at(14));
+        assert_panic!(wecr.clone().split_at(17));
+        assert_panic!(wecr.clone().split_at(18));
     }
 
     #[test]
@@ -1203,7 +1227,7 @@ pub(crate) mod test {
                    b"\x03www");
         assert_eq!(wecr.clone().strip_suffix(&cr).unwrap().as_slice(),
                    b"\x03www\x07example");
-        assert_eq!(wecr.clone().strip_suffix(&Dname::root())
+        assert_eq!(wecr.clone().strip_suffix(&Dname::static_root())
                                .unwrap().as_slice(),
                    b"\x03www\x07example\x03com");
 
@@ -1218,27 +1242,27 @@ pub(crate) mod test {
     #[test]
     fn parse() {
         // Parse a correctly formatted name.
-        let mut p = Parser::from_static(b"\x03www\x07example\x03com\0af");
+        let mut p = Parser::from_slice(b"\x03www\x07example\x03com\0af");
         assert_eq!(Dname::parse(&mut p).unwrap().as_slice(),
                   b"\x03www\x07example\x03com\0");
         assert_eq!(p.peek_all(), b"af");
 
         // Short buffer in middle of label.
-        let mut p = Parser::from_static(b"\x03www\x07exam");
+        let mut p = Parser::from_slice(b"\x03www\x07exam");
         assert_eq!(Dname::parse(&mut p), Err(ShortBuf.into()));
 
         // Short buffer at end of label.
-        let mut p = Parser::from_static(b"\x03www\x07example");
+        let mut p = Parser::from_slice(b"\x03www\x07example");
         assert_eq!(Dname::parse(&mut p), Err(ShortBuf.into()));
 
         // Compressed name.
-        let mut p = Parser::from_static(b"\x03com\x03www\x07example\xc0\0");
+        let mut p = Parser::from_slice(b"\x03com\x03www\x07example\xc0\0");
         p.advance(4).unwrap();
         assert_eq!(Dname::parse(&mut p),
                    Err(DnameError::CompressedName.into()));
 
         // Bad label header.
-        let mut p = Parser::from_static(b"\x03www\x07example\xbffoo");
+        let mut p = Parser::from_slice(b"\x03www\x07example\xbffoo");
         assert_eq!(Dname::parse(&mut p),
                    Err(LabelTypeError::Undefined.into()));
 
@@ -1271,12 +1295,12 @@ pub(crate) mod test {
         // are test cases for the error cases with that function, all we need
         // to do is make sure it defers correctly.
 
-        let mut p = Parser::from_static(b"\x03www\x07example\x03com\0af");
+        let mut p = Parser::from_slice(b"\x03www\x07example\x03com\0af");
         assert_eq!(Dname::parse_all(&mut p, 17).unwrap().as_slice(),
                   b"\x03www\x07example\x03com\0");
         assert_eq!(p.peek_all(), b"af");
         
-        let mut p = Parser::from_static(b"\0af");
+        let mut p = Parser::from_slice(b"\0af");
         assert_eq!(Dname::parse_all(&mut p, 1).unwrap().as_slice(), b"\0");
         assert_eq!(p.peek_all(), b"af");
     }
@@ -1311,7 +1335,7 @@ pub(crate) mod test {
                 .chain(RelativeDname::from_slice(b"\x07example\x03com")
                                      .unwrap())
                     .unwrap()
-                .chain(Dname::root()).unwrap()
+                .chain(Dname::static_root()).unwrap()
         );
         assert_eq!(
             Dname::from_slice(b"\x03www\x07example\x03com\0").unwrap(),
@@ -1319,7 +1343,7 @@ pub(crate) mod test {
                 .chain(RelativeDname::from_slice(b"\x07eXAMple\x03coM")
                                      .unwrap())
                     .unwrap()
-                .chain(Dname::root()).unwrap()
+                .chain(Dname::static_root()).unwrap()
         );
 
         assert_ne!(Dname::from_slice(b"\x03www\x07example\x03com\0").unwrap(),
@@ -1330,7 +1354,7 @@ pub(crate) mod test {
                 .chain(RelativeDname::from_slice(b"\x073xample\x03com")
                                      .unwrap())
                     .unwrap()
-                .chain(Dname::root()).unwrap()
+                .chain(Dname::static_root()).unwrap()
         );
     }
 

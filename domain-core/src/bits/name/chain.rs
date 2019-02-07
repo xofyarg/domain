@@ -154,7 +154,7 @@ where O: Octets, R: ToDname {
     }
 }
 
-impl<R: ToDname> Compose for Chain<UncertainDname, R> {
+impl<O: Octets, R: ToDname> Compose for Chain<UncertainDname<O>, R> {
     fn compose_len(&self) -> usize {
         match self.left {
             UncertainDname::Absolute(ref name) => name.compose_len(),
@@ -176,7 +176,7 @@ impl<R: ToDname> Compose for Chain<UncertainDname, R> {
 }
 
 
-impl<R: ToDname> Compress for Chain<UncertainDname, R> {
+impl<O: Octets, R: ToDname> Compress for Chain<UncertainDname<O>, R> {
     fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
         if let UncertainDname::Absolute(ref name) = self.left {
             buf.compress_name(name)
@@ -188,7 +188,7 @@ impl<R: ToDname> Compress for Chain<UncertainDname, R> {
     }
 }
 
-impl<R: ToDname> ToDname for Chain<UncertainDname, R> { }
+impl<O: Octets, R: ToDname> ToDname for Chain<UncertainDname<O>, R> { }
 
 
 //------------ ChainIter -----------------------------------------------------
@@ -271,13 +271,23 @@ mod test {
     /// right types.
     #[test]
     fn impls() {
-        let rel = RelativeDname::empty()
-                                .chain(RelativeDname::empty()).unwrap();
-        assert_to_dname(&RelativeDname::empty().chain(Dname::root()).unwrap());
+        let rel = RelativeDname::static_empty()
+                  .chain(RelativeDname::static_empty()).unwrap();
+        assert_to_dname(
+            &RelativeDname::static_empty().chain(
+                Dname::static_root()
+            ).unwrap()
+        );
         assert_to_relative_dname(&rel);
-        assert_to_dname(&rel.clone().chain(Dname::root()).unwrap());
-        assert_to_relative_dname(&rel.chain(RelativeDname::empty()).unwrap());
-        assert_to_dname(&UncertainDname::root().chain(Dname::root()).unwrap());
+        assert_to_dname(&rel.clone().chain(Dname::static_root()).unwrap());
+        assert_to_relative_dname(
+            &rel.chain(RelativeDname::static_empty()).unwrap()
+        );
+        assert_to_dname(
+            &UncertainDname::static_root().chain(
+                Dname::static_root()
+            ).unwrap()
+        );
     }
 
     /// Tests that a chain never becomes too long.
@@ -348,7 +358,7 @@ mod test {
         cmp_iter(w.clone().chain(ecr.clone()).unwrap().iter_labels(),
                  &[b"www", b"example", b"com", b""]);
         cmp_iter(w.clone().chain(ec.clone()).unwrap()
-                          .chain(Dname::root()).unwrap().iter_labels(),
+                          .chain(Dname::static_root()).unwrap().iter_labels(),
                  &[b"www", b"example", b"com", b""]);
         
         cmp_iter(UncertainDname::from(w.clone())
@@ -378,8 +388,8 @@ mod test {
                    b"\x03www\x07example\x03com\x00");
 
         let mut buf = BytesMut::with_capacity(255);
-        w.clone().chain(ec.clone()).unwrap().chain(Dname::root()).unwrap()
-         .compose(&mut buf);
+        w.clone().chain(ec.clone()).unwrap()
+            .chain(Dname::static_root()).unwrap().compose(&mut buf);
         assert_eq!(buf.freeze().as_ref(),
                    b"\x03www\x07example\x03com\x00");
 
@@ -410,8 +420,8 @@ mod test {
                    b"\x03www\x07example\x03com\x00");
 
         let mut buf = Compressor::with_capacity(255);
-        w.clone().chain(ec.clone()).unwrap().chain(Dname::root()).unwrap()
-         .compress(&mut buf).unwrap();
+        w.clone().chain(ec.clone()).unwrap()
+            .chain(Dname::static_root()).unwrap().compress(&mut buf).unwrap();
         assert_eq!(buf.freeze().as_ref(),
                    b"\x03www\x07example\x03com\x00");
 

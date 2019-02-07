@@ -662,10 +662,10 @@ mod test {
         let mut buf = Compressor::with_capacity(1024);
         buf.enable_compression();
         buf.compose(&7u8).unwrap();
-        Dname::root().compress(&mut buf).unwrap();
+        Dname::<&'static [u8]>::root().compress(&mut buf).unwrap();
         Dname::from_slice(b"\x03foo\x00").unwrap()
               .compress(&mut buf).unwrap();
-        Dname::root().compress(&mut buf).unwrap();
+        Dname::<&'static [u8]>::root().compress(&mut buf).unwrap();
         assert_eq!(buf.so_far(), b"\x07\x00\x03foo\x00\x00");
     }
 }
