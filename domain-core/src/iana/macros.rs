@@ -88,18 +88,19 @@ macro_rules! int_enum {
 
         //--- Parse and Compose
 
-        impl $crate::bits::parse::Parse for $ianatype {
+        impl<O> $crate::bits::parse::Parse<O> for $ianatype
+        where O: $crate::bits::octets::Octets {
             type Err = $crate::bits::parse::ShortBuf;
 
-            fn parse(parser: &mut $crate::bits::parse::Parser)
+            fn parse(parser: &mut $crate::bits::parse::Parser<O>)
                      -> Result<Self, Self::Err> {
-                <$inttype as $crate::bits::parse::Parse>::parse(parser)
+                <$inttype as $crate::bits::parse::Parse<O>>::parse(parser)
                     .map(Self::from_int)
             }
 
-            fn skip(parser: &mut $crate::bits::parse::Parser)
+            fn skip(parser: &mut $crate::bits::parse::Parser<O>)
                     -> Result<(), Self::Err> {
-                <$inttype as $crate::bits::parse::Parse>::skip(parser)
+                <$inttype as $crate::bits::parse::Parse<O>>::skip(parser)
             }
         }
 

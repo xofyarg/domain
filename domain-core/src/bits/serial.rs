@@ -8,8 +8,9 @@
 use std::{cmp, fmt, str};
 use bytes::BufMut;
 use chrono::{Utc, TimeZone};
-use ::master::scan::{CharSource, Scan, ScanError, Scanner, SyntaxError};
+use crate::master::scan::{CharSource, Scan, ScanError, Scanner, SyntaxError};
 use super::compose::Compose;
+use super::octets::Octets;
 use super::parse::{Parse, ParseAll, Parser};
 
 
@@ -164,22 +165,25 @@ impl str::FromStr for Serial {
 
 //--- Parse, ParseAll, and Compose
 
-impl Parse for Serial {
-    type Err = <u32 as Parse>::Err;
+impl<O: Octets> Parse<O> for Serial {
+    type Err = <u32 as Parse<O>>::Err;
 
-    fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
+    fn parse(parser: &mut Parser<O>) -> Result<Self, Self::Err> {
         u32::parse(parser).map(Into::into)
     }
 
-    fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
+    fn skip(parser: &mut Parser<O>) -> Result<(), Self::Err> {
         u32::skip(parser)
     }
 }
 
-impl ParseAll for Serial {
-    type Err = <u32 as ParseAll>::Err;
+impl<O: Octets> ParseAll<O> for Serial {
+    type Err = <u32 as ParseAll<O>>::Err;
 
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+    fn parse_all(
+        parser: &mut Parser<O>,
+        len: usize
+    ) -> Result<Self, Self::Err> {
         u32::parse_all(parser, len).map(Into::into)
     }
 }

@@ -5,9 +5,10 @@
 
 use std::fmt;
 use bytes::BufMut;
-use ::iana::{Class, Rtype};
+use crate::iana::{Class, Rtype};
 use super::compose::{Compose, Compress, Compressor};
 use super::name::ToDname;
+use super::octets::Octets;
 use super::parse::{Parse, Parser, ShortBuf};
 
 
@@ -31,7 +32,7 @@ use super::parse::{Parse, Parser, ShortBuf};
 ///
 /// [`ParsedDname`]: ../name/struct.ParsedDname.html
 /// [`MessageBuilder`]: ../message_builder/struct.MessageBuilder.html
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Hash, Ord, PartialOrd)]
 pub struct Question<N: ToDname> {
     /// The domain name of the question.
     qname: N,
@@ -95,10 +96,10 @@ impl<N: ToDname> From<(N, Rtype)> for Question<N> {
 
 //--- Parse, Compose, and Compress
 
-impl<N: ToDname + Parse> Parse for Question<N> {
-    type Err = <N as Parse>::Err;
+impl<O: Octets, N: ToDname + Parse<O>> Parse<O> for Question<N> {
+    type Err = <N as Parse<O>>::Err;
 
-    fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
+    fn parse(parser: &mut Parser<O>) -> Result<Self, Self::Err> {
         Ok(Question::new(
             N::parse(parser)?,
             Rtype::parse(parser)?,
@@ -106,7 +107,7 @@ impl<N: ToDname + Parse> Parse for Question<N> {
         ))
     }
 
-    fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
+    fn skip(parser: &mut Parser<O>) -> Result<(), Self::Err> {
         N::skip(parser)?;
         Rtype::skip(parser)?;
         Class::skip(parser)?;
@@ -134,6 +135,19 @@ impl<N: ToDname> Compress for Question<N> {
         buf.compose(&self.qclass)
     }
 }
+
+
+//--- PartialEq and Eq
+
+impl<N: ToDname, M: ToDname> PartialEq<Question<M>> for Question<N> {
+    fn eq(&self, other: &Question<M>) -> bool {
+        self.qname.name_eq(&other.qname)
+            && self.qtype == other.qtype
+            && self.qclass == other.qclass
+    }
+}
+
+impl<N: ToDname> Eq for Question<N> { }
 
 
 //--- Display

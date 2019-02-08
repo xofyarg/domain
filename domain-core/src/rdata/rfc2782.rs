@@ -6,11 +6,12 @@
 
 use std::fmt;
 use bytes::BufMut;
-use ::bits::compose::{Compose, Compress, Compressor};
-use ::bits::parse::{Parse, ParseAll, Parser, ParseOpenError, ShortBuf};
-use ::bits::rdata::RtypeRecordData;
-use ::master::scan::{CharSource, Scan, Scanner, ScanError};
-use ::iana::Rtype;
+use crate::bits::compose::{Compose, Compress, Compressor};
+use crate::bits::octets::Octets;
+use crate::bits::parse::{Parse, ParseAll, Parser, ParseOpenError, ShortBuf};
+use crate::bits::rdata::RtypeRecordData;
+use crate::iana::Rtype;
+use crate::master::scan::{CharSource, Scan, Scanner, ScanError};
 
 
 //------------ Srv ---------------------------------------------------------
@@ -39,15 +40,15 @@ impl<N> Srv<N> {
 
 //--- Parse, ParseAll, Compose and Compress
 
-impl<N: Parse> Parse for Srv<N> {
-    type Err = <N as Parse>::Err;
+impl<O: Octets, N: Parse<O>> Parse<O> for Srv<N> {
+    type Err = <N as Parse<O>>::Err;
 
-    fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
+    fn parse(parser: &mut Parser<O>) -> Result<Self, Self::Err> {
         Ok(Self::new(u16::parse(parser)?, u16::parse(parser)?,
                      u16::parse(parser)?, N::parse(parser)?))
     }
 
-    fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
+    fn skip(parser: &mut Parser<O>) -> Result<(), Self::Err> {
         u16::skip(parser)?;
         u16::skip(parser)?;
         u16::skip(parser)?;
@@ -55,10 +56,14 @@ impl<N: Parse> Parse for Srv<N> {
     }
 }
 
-impl<N: ParseAll> ParseAll for Srv<N> where N::Err: From<ParseOpenError> {
+impl<O: Octets, N: ParseAll<O>> ParseAll<O> for Srv<N>
+where N::Err: From<ParseOpenError> {
     type Err = N::Err;
 
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+    fn parse_all(
+        parser: &mut Parser<O>,
+        len: usize
+    ) -> Result<Self, Self::Err> {
         if len < 7 {
             return Err(ParseOpenError::ShortField.into())
         }

@@ -8,15 +8,17 @@ use std::{fmt, ops};
 use std::net::Ipv4Addr;
 use std::str::FromStr;
 use bytes::{BufMut, Bytes, BytesMut};
-use ::iana::Rtype;
-use ::bits::charstr::CharStr;
-use ::bits::compose::{Compose, Compress, Compressor};
-use ::bits::name::ParsedDname;
-use ::bits::parse::{ParseAll, ParseAllError, ParseOpenError, Parse,
-                    Parser, ShortBuf};
-use ::bits::rdata::RtypeRecordData;
-use ::bits::serial::Serial;
-use ::master::scan::{CharSource, ScanError, Scan, Scanner};
+use crate::iana::Rtype;
+use crate::bits::charstr::CharStr;
+use crate::bits::compose::{Compose, Compress, Compressor};
+use crate::bits::name::ParsedDname;
+use crate::bits::octets::Octets;
+use crate::bits::parse::{
+    ParseAll, ParseAllError, ParseOpenError, Parse, Parser, ShortBuf
+};
+use crate::bits::rdata::RtypeRecordData;
+use crate::bits::serial::Serial;
+use crate::master::scan::{CharSource, ScanError, Scan, Scanner};
 
 
 //------------ dname_type! --------------------------------------------------
@@ -61,24 +63,24 @@ macro_rules! dname_type {
         
         //--- Parse, ParseAll, Compose, and Compress
 
-        impl Parse for $target<ParsedDname> {
-            type Err = <ParsedDname as Parse>::Err;
+        impl<O: Octets, N: Parse<O>> Parse<O> for $target<N> {
+            type Err = <N as Parse<O>>::Err;
 
-            fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
-                ParsedDname::parse(parser).map(Self::new)
+            fn parse(parser: &mut Parser<O>) -> Result<Self, Self::Err> {
+                N::parse(parser).map(Self::new)
             }
 
-            fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
-                ParsedDname::skip(parser).map_err(Into::into)
+            fn skip(parser: &mut Parser<O>) -> Result<(), Self::Err> {
+                N::skip(parser).map_err(Into::into)
             }
         }
 
-        impl ParseAll for $target<ParsedDname> {
-            type Err = <ParsedDname as ParseAll>::Err;
+        impl<O: Octets, N: ParseAll<O>> ParseAll<O> for $target<N> {
+            type Err = <N as ParseAll<O>>::Err;
 
-            fn parse_all(parser: &mut Parser, len: usize)
+            fn parse_all(parser: &mut Parser<O>, len: usize)
                          -> Result<Self, Self::Err> {
-                ParsedDname::parse_all(parser, len).map(Self::new)
+                N::parse_all(parser, len).map(Self::new)
             }
         }
 
@@ -190,23 +192,26 @@ impl FromStr for A {
 
 //--- Parse, ParseAll, Compose, and Compress
 
-impl Parse for A {
-    type Err = <Ipv4Addr as Parse>::Err;
+impl<O: Octets> Parse<O> for A {
+    type Err = <Ipv4Addr as Parse<O>>::Err;
 
-    fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
+    fn parse(parser: &mut Parser<O>) -> Result<Self, Self::Err> {
         Ipv4Addr::parse(parser).map(Self::new)
     }
 
-    fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
+    fn skip(parser: &mut Parser<O>) -> Result<(), Self::Err> {
         Ipv4Addr::skip(parser)?;
         Ok(())
     }
 }
 
-impl ParseAll for A {
-    type Err = <Ipv4Addr as ParseAll>::Err;
+impl<O: Octets> ParseAll<O> for A {
+    type Err = <Ipv4Addr as ParseAll<O>>::Err;
 
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+    fn parse_all(
+        parser: &mut Parser<O>,
+        len: usize
+    ) -> Result<Self, Self::Err> {
         Ipv4Addr::parse_all(parser, len).map(Self::new)
     }
 }
@@ -327,25 +332,27 @@ impl Hinfo {
 
 //--- Parse, Compose, and Compress
 
-impl Parse for Hinfo {
+impl Parse<Bytes> for Hinfo {
     type Err = ShortBuf;
 
-    fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
+    fn parse(parser: &mut Parser<Bytes>) -> Result<Self, Self::Err> {
         Ok(Self::new(CharStr::parse(parser)?, CharStr::parse(parser)?))
     }
 
-    fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
+    fn skip(parser: &mut Parser<Bytes>) -> Result<(), Self::Err> {
         CharStr::skip(parser)?;
         CharStr::skip(parser)?;
         Ok(())
     }
 }
 
-impl ParseAll for Hinfo {
+impl ParseAll<Bytes> for Hinfo {
     type Err = ParseAllError;
 
-    fn parse_all(parser: &mut Parser, len: usize)
-                    -> Result<Self, Self::Err> {
+    fn parse_all(
+        parser: &mut Parser<Bytes>,
+        len: usize
+    ) -> Result<Self, Self::Err> {
         let cpu = CharStr::parse(parser)?;
         let len = match len.checked_sub(cpu.len() + 1) {
             Some(len) => len,
@@ -494,25 +501,28 @@ impl<N> Minfo<N> {
 
 //--- Parse, ParseAll, Compose, and Compress
 
-impl<N: Parse> Parse for Minfo<N> {
+impl<O: Octets, N: Parse<O>> Parse<O> for Minfo<N> {
     type Err = N::Err;
 
-    fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
+    fn parse(parser: &mut Parser<O>) -> Result<Self, Self::Err> {
         Ok(Self::new(N::parse(parser)?, N::parse(parser)?))
     }
 
-    fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
+    fn skip(parser: &mut Parser<O>) -> Result<(), Self::Err> {
         N::skip(parser)?;
         N::skip(parser)?;
         Ok(())
     }
 }
 
-impl<N: Parse + ParseAll> ParseAll for Minfo<N>
-     where <N as ParseAll>::Err: From<<N as Parse>::Err> + From<ShortBuf> {
-    type Err = <N as ParseAll>::Err;
+impl<O: Octets, N: Parse<O> + ParseAll<O>> ParseAll<O> for Minfo<N>
+where <N as ParseAll<O>>::Err: From<<N as Parse<O>>::Err> + From<ShortBuf> {
+    type Err = <N as ParseAll<O>>::Err;
 
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+    fn parse_all(
+        parser: &mut Parser<O>,
+        len: usize
+    ) -> Result<Self, Self::Err> {
         let pos = parser.pos();
         let rmailbx = N::parse(parser)?;
         let rlen = parser.pos() - pos;
@@ -622,25 +632,28 @@ impl<N> Mx<N> {
 
 //--- Parse, ParseAll, Compose, Compress
 
-impl<N: Parse> Parse for Mx<N>
-     where N::Err: From<ShortBuf> {
+impl<O: Octets, N: Parse<O>> Parse<O> for Mx<N>
+where N::Err: From<ShortBuf> {
     type Err = N::Err;
 
-    fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
+    fn parse(parser: &mut Parser<O>) -> Result<Self, Self::Err> {
         Ok(Self::new(u16::parse(parser)?, N::parse(parser)?))
     }
 
-    fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
+    fn skip(parser: &mut Parser<O>) -> Result<(), Self::Err> {
         u16::skip(parser)?;
         N::skip(parser)
     }
 }
 
-impl<N: ParseAll> ParseAll for Mx<N>
-     where N::Err: From<ParseOpenError> + From<ShortBuf> {
+impl<O: Octets, N: ParseAll<O>> ParseAll<O> for Mx<N>
+where N::Err: From<ParseOpenError> + From<ShortBuf> {
     type Err = N::Err;
 
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+    fn parse_all(
+        parser: &mut Parser<O>,
+        len: usize
+    ) -> Result<Self, Self::Err> {
         if len < 3 {
             return Err(ParseOpenError::ShortField.into())
         }
@@ -737,10 +750,13 @@ impl From<Bytes> for Null {
 
 //--- ParseAll, Compose, and Compress
 
-impl ParseAll for Null {
+impl ParseAll<Bytes> for Null {
     type Err = ShortBuf;
 
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+    fn parse_all(
+        parser: &mut Parser<Bytes>,
+        len: usize
+    ) -> Result<Self, Self::Err> {
         parser.parse_octets(len).map(Self::new)
     }
 }
@@ -890,17 +906,18 @@ impl<N> Soa<N> {
 
 //--- Parse, ParseAll, Compose, and Compress
 
-impl<N: Parse> Parse for Soa<N> where N::Err: From<ShortBuf> {
+impl<O: Octets, N: Parse<O>> Parse<O> for Soa<N>
+where N::Err: From<ShortBuf> {
     type Err = N::Err;
 
-    fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
+    fn parse(parser: &mut Parser<O>) -> Result<Self, Self::Err> {
         Ok(Self::new(N::parse(parser)?, N::parse(parser)?,
                      Serial::parse(parser)?, u32::parse(parser)?,
                      u32::parse(parser)?, u32::parse(parser)?,
                      u32::parse(parser)?))
     }
 
-    fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
+    fn skip(parser: &mut Parser<O>) -> Result<(), Self::Err> {
         N::skip(parser)?;
         N::skip(parser)?;
         Serial::skip(parser)?;
@@ -912,15 +929,20 @@ impl<N: Parse> Parse for Soa<N> where N::Err: From<ShortBuf> {
     }
 }
 
-impl<N: ParseAll + Parse> ParseAll for Soa<N>
-        where <N as ParseAll>::Err: From<<N as Parse>::Err>,
-              <N as ParseAll>::Err: From<ParseAllError>,
-              <N as Parse>::Err: From<ShortBuf> {
-    type Err = <N as ParseAll>::Err;
+impl<O: Octets, N: ParseAll<O> + Parse<O>> ParseAll<O> for Soa<N>
+where
+    <N as ParseAll<O>>::Err: From<<N as Parse<O>>::Err>,
+    <N as ParseAll<O>>::Err: From<ParseAllError>,
+    <N as Parse<O>>::Err: From<ShortBuf>
+{
+    type Err = <N as ParseAll<O>>::Err;
 
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+    fn parse_all(
+        parser: &mut Parser<O>,
+        len: usize
+    ) -> Result<Self, Self::Err> {
         let mut tmp = parser.clone();
-        let res = <Self as Parse>::parse(&mut tmp)?;
+        let res = <Self as Parse<O>>::parse(&mut tmp)?;
         if tmp.pos() - parser.pos() < len {
             Err(ParseAllError::TrailingData.into())
         }
@@ -1065,10 +1087,13 @@ impl<'a> IntoIterator for &'a Txt {
 
 //--- ParseAll, Compose, and Compress
 
-impl ParseAll for Txt {
+impl ParseAll<Bytes> for Txt {
     type Err = ParseOpenError;
 
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+    fn parse_all(
+        parser: &mut Parser<Bytes>,
+        len: usize
+    ) -> Result<Self, Self::Err> {
         let text = parser.parse_octets(len)?;
         let mut tmp = Parser::from_bytes(text.clone());
         while tmp.remaining() > 0 {
@@ -1141,7 +1166,7 @@ impl RtypeRecordData for Txt {
 /// An iterator over the character strings of a Txt record.
 #[derive(Clone, Debug)]
 pub struct TxtIter {
-    parser: Parser,
+    parser: Parser<Bytes>,
 }
 
 impl TxtIter {
@@ -1222,10 +1247,13 @@ impl Wks {
 
 //--- ParseAll, Compose, Compress
 
-impl ParseAll for Wks {
+impl ParseAll<Bytes> for Wks {
     type Err = ParseOpenError;
 
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+    fn parse_all(
+        parser: &mut Parser<Bytes>,
+        len: usize
+    ) -> Result<Self, Self::Err> {
         if len < 5 {
             return Err(ParseOpenError::ShortField)
         }

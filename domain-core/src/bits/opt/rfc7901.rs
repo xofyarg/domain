@@ -44,7 +44,7 @@ impl Chain<&'static [u8]> {
 //--- ParseAll and Compose
 
 impl<O: Octets> ParseAll<O> for Chain<O> {
-    type Err = <Dname as ParseAll>::Err;
+    type Err = <Dname<O> as ParseAll<O>>::Err;
 
     fn parse_all(
         parser: &mut Parser<O>,

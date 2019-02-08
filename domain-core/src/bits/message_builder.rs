@@ -736,7 +736,7 @@ impl MessageTarget {
         else {
             self.buf.unwrap().freeze().slice_from(self.start)
         };
-        unsafe { Message::from_bytes_unchecked(bytes) }
+        unsafe { Message::from_octets_unchecked(bytes) }
     }
 }
 

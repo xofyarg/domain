@@ -6,14 +6,14 @@
 
 use std::{fmt, ptr};
 use bytes::{BufMut, Bytes, BytesMut};
-use ::bits::compose::{Compose, Compress, Compressor};
-use ::bits::name::{Dname, DnameError, DnameOctetsError, DnameParseError};
-use ::bits::parse::{Parse, ParseAll, ParseAllError, Parser, ShortBuf};
-use ::bits::rdata::RtypeRecordData;
-use ::bits::serial::Serial;
-use ::iana::{DigestAlg, Rtype, SecAlg};
-use ::master::scan::{CharSource, ScanError, Scan, Scanner};
-use ::utils::base64;
+use crate::bits::compose::{Compose, Compress, Compressor};
+use crate::bits::name::{Dname, DnameError, DnameOctetsError, DnameParseError};
+use crate::bits::parse::{Parse, ParseAll, ParseAllError, Parser, ShortBuf};
+use crate::bits::rdata::RtypeRecordData;
+use crate::bits::serial::Serial;
+use crate::iana::{DigestAlg, Rtype, SecAlg};
+use crate::master::scan::{CharSource, ScanError, Scan, Scanner};
+use crate::utils::base64;
 
 
 //------------ Dnskey --------------------------------------------------------
@@ -61,11 +61,11 @@ impl Dnskey {
 
 //--- ParseAll, Compose, and Compress
 
-impl ParseAll for Dnskey {
+impl ParseAll<Bytes> for Dnskey {
     type Err = ParseAllError;
 
     fn parse_all(
-        parser: &mut Parser,
+        parser: &mut Parser<Bytes>,
         len: usize,
     ) -> Result<Self, Self::Err> {
         if len < 4 {
@@ -211,10 +211,13 @@ impl Rrsig {
 
 //--- ParseAll, Compose, and Compress
 
-impl ParseAll for Rrsig {
+impl ParseAll<Bytes> for Rrsig {
     type Err = DnameOctetsError;
 
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+    fn parse_all(
+        parser: &mut Parser<Bytes>,
+        len: usize
+    ) -> Result<Self, Self::Err> {
         let start = parser.pos();
         let type_covered = Rtype::parse(parser)?;
         let algorithm = SecAlg::parse(parser)?;
@@ -326,10 +329,13 @@ impl Nsec {
 
 //--- ParseAll, Compose, and Compress
 
-impl ParseAll for Nsec {
+impl ParseAll<Bytes> for Nsec {
     type Err = ParseNsecError;
 
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+    fn parse_all(
+        parser: &mut Parser<Bytes>,
+        len: usize
+    ) -> Result<Self, Self::Err> {
         let start = parser.pos();
         let next_name = Dname::parse(parser)?;
         let len = if parser.pos() > start + len {
@@ -428,10 +434,13 @@ impl Ds {
 
 //--- ParseAll, Compose, and Compress
 
-impl ParseAll for Ds {
+impl ParseAll<Bytes> for Ds {
     type Err = ShortBuf;
 
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+    fn parse_all(
+        parser: &mut Parser<Bytes>,
+        len: usize
+    ) -> Result<Self, Self::Err> {
         if len < 4 {
             return Err(ShortBuf)
         }
@@ -574,10 +583,13 @@ impl<'a> IntoIterator for &'a RtypeBitmap {
 
 //--- ParseAll, Compose, Compress
 
-impl ParseAll for RtypeBitmap {
+impl ParseAll<Bytes> for RtypeBitmap {
     type Err = RtypeBitmapError;
 
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+    fn parse_all(
+        parser: &mut Parser<Bytes>,
+        len: usize
+    ) -> Result<Self, Self::Err> {
         let bytes = parser.parse_octets(len)?;
         RtypeBitmap::from_bytes(bytes)
     }

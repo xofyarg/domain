@@ -1,5 +1,6 @@
 //! Generic octet sequences.
 
+use std::{cmp, ptr};
 use bytes::Bytes;
 
 
@@ -52,6 +53,42 @@ impl Octets for Bytes {
 
     fn into_bytes(self) -> Bytes {
         self
+    }
+}
+
+
+//------------ OctetsMut -----------------------------------------------------
+
+pub trait OctetsMut {
+    /// Attempts to make sure that capacity is at least `remaining` octets.
+    ///
+    /// If it is not possible to provide space for `remaining` octets, the
+    /// method returns `false`. If there is already enough space or the
+    /// space has been grown to be large enough, returns `true`.
+    fn ensure_remaining(&mut self, remaining: usize) -> bool;
+
+    unsafe fn advance_mut(&mut self, count: usize);
+    unsafe fn buf_mut(&mut self) -> &mut [u8];
+
+    fn put_slice(&mut self, mut slice: &[u8]) {
+        assert!(self.ensure_remaining(slice.len()));
+        while !slice.is_empty() {
+            let len = unsafe {
+                let dst = self.buf_mut();
+                assert!(!dst.is_empty());
+                let len = cmp::min(slice.len(), dst.len());
+                ptr::copy_nonoverlapping(
+                    slice.as_ptr(), dst.as_mut_ptr(), len
+                );
+                len
+            };
+            slice = &slice[len..];
+        }
+    }
+
+    fn put_u8(&mut self, value: u8) {
+        let value = [value];
+        self.put_slice(&value);
     }
 }
 

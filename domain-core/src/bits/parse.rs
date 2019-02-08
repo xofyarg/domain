@@ -47,7 +47,7 @@ use crate::bits::octets::Octets;
 /// [`ParsedDname`]: ../name/struct.ParsedDname.html
 /// [`ShortBuf`]: ../struct.ShortBuf.html
 #[derive(Clone, Debug)]
-pub struct Parser<O=Bytes> {
+pub struct Parser<O> {
     /// The underlying data.
     octets: O,
 
@@ -255,7 +255,7 @@ impl<O: Octets> Parser<O> {
 /// value in the parser can be determined from data read so far. These are
 /// either fixed length types like `u32` or types that either contain length
 /// octets or boundary markers.
-pub trait Parse<O=Bytes>: Sized {
+pub trait Parse<O>: Sized {
     /// The type of an error returned when parsing fails.
     type Err: From<ShortBuf>;
 
@@ -381,7 +381,7 @@ impl<O: Octets> Parse<O> for Ipv6Addr {
 /// value is expected to stretch over this entire length. There are types
 /// that can implement `ParseAll` but not [`Parse`] because they simply take
 /// all remaining bytes.
-pub trait ParseAll<O=Bytes>: Sized {
+pub trait ParseAll<O>: Sized {
     /// The type returned when parsing fails.
     type Err: From<ShortBuf> + Fail;
 

@@ -181,9 +181,11 @@ macro_rules! rdata_types {
         {
             type Err = MasterDataParseError;
 
-            fn parse_data(rtype: ::iana::Rtype,
-                          parser: &mut ::bits::parse::Parser, rdlen: usize)
-                          -> Result<Option<Self>, Self::Err> {
+            fn parse_data(
+                rtype: ::iana::Rtype,
+                parser: &mut ::bits::parse::Parser<bytes::Bytes>,
+                rdlen: usize
+            ) -> Result<Option<Self>, Self::Err> {
                 use bits::parse::ParseAll;
 
                 match rtype {
@@ -475,9 +477,11 @@ macro_rules! rdata_types {
         {
             type Err = AllDataParseError;
 
-            fn parse_data(rtype: ::iana::Rtype,
-                          parser: &mut ::bits::parse::Parser, rdlen: usize)
-                          -> Result<Option<Self>, Self::Err> {
+            fn parse_data(
+                rtype: ::iana::Rtype,
+                parser: &mut ::bits::parse::Parser<bytes::Bytes>,
+                rdlen: usize
+            ) -> Result<Option<Self>, Self::Err> {
                 use bits::parse::ParseAll;
 
                 match rtype {

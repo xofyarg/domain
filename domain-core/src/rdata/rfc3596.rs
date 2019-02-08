@@ -8,11 +8,12 @@ use std::{fmt, ops};
 use std::net::Ipv6Addr;
 use std::str::FromStr;
 use bytes::BufMut;
-use ::bits::compose::{Compose, Compress, Compressor};
-use ::bits::parse::{Parse, ParseAll, Parser, ShortBuf};
-use ::bits::rdata::RtypeRecordData;
-use ::iana::Rtype;
-use ::master::scan::{CharSource, Scan, Scanner, ScanError};
+use crate::bits::compose::{Compose, Compress, Compressor};
+use crate::bits::octets::Octets;
+use crate::bits::parse::{Parse, ParseAll, Parser, ShortBuf};
+use crate::bits::rdata::RtypeRecordData;
+use crate::iana::Rtype;
+use crate::master::scan::{CharSource, Scan, Scanner, ScanError};
 
 
 //------------ Aaaa ---------------------------------------------------------
@@ -57,22 +58,25 @@ impl FromStr for Aaaa {
 
 //--- Parse, ParseAll, Compose, and Compress
 
-impl Parse for Aaaa {
-    type Err = <Ipv6Addr as Parse>::Err;
+impl<O: Octets> Parse<O> for Aaaa {
+    type Err = <Ipv6Addr as Parse<O>>::Err;
 
-    fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
+    fn parse(parser: &mut Parser<O>) -> Result<Self, Self::Err> {
         Ipv6Addr::parse(parser).map(Self::new)
     }
 
-    fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
+    fn skip(parser: &mut Parser<O>) -> Result<(), Self::Err> {
         Ipv6Addr::skip(parser)
     }
 }
 
-impl ParseAll for Aaaa {
-    type Err = <Ipv6Addr as ParseAll>::Err;
+impl<O: Octets> ParseAll<O> for Aaaa {
+    type Err = <Ipv6Addr as ParseAll<O>>::Err;
 
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+    fn parse_all(
+        parser: &mut Parser<O>,
+        len: usize
+    ) -> Result<Self, Self::Err> {
         Ipv6Addr::parse_all(parser, len).map(Self::new)
     }
 }

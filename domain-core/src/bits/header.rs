@@ -20,8 +20,9 @@
 
 use std::mem;
 use bytes::{BigEndian, BufMut, ByteOrder};
-use ::iana::{Opcode, Rcode};
+use crate::iana::{Opcode, Rcode};
 use super::compose::Compose;
+use super::octets::Octets;
 use super::parse::{Parse, Parser, ShortBuf};
 
 
@@ -593,16 +594,16 @@ impl HeaderSection {
 
 //--- Parse and Compose
 
-impl Parse for HeaderSection {
+impl<O: Octets> Parse<O> for HeaderSection {
     type Err = ShortBuf;
 
-    fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
+    fn parse(parser: &mut Parser<O>) -> Result<Self, Self::Err> {
         let mut res = Self::default();
         parser.parse_buf(&mut res.inner)?;
         Ok(res)
     }
 
-    fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
+    fn skip(parser: &mut Parser<O>) -> Result<(), Self::Err> {
         parser.advance(12)
     }
 }

@@ -5,14 +5,14 @@
 //! [RFC 5155]: https://tools.ietf.org/html/rfc5155
 
 use std::fmt;
-use bytes::BufMut;
-use ::bits::charstr::CharStr;
-use ::bits::compose::{Compose, Compress, Compressor};
-use ::bits::parse::{Parse, ParseAll, ParseAllError, Parser, ShortBuf};
-use ::bits::rdata::RtypeRecordData;
-use ::iana::{Nsec3HashAlg, Rtype};
-use ::master::scan::{CharSource, Scan, Scanner, ScanError, SyntaxError};
-use ::utils::base32;
+use bytes::{BufMut, Bytes};
+use crate::bits::charstr::CharStr;
+use crate::bits::compose::{Compose, Compress, Compressor};
+use crate::bits::parse::{Parse, ParseAll, ParseAllError, Parser, ShortBuf};
+use crate::bits::rdata::RtypeRecordData;
+use crate::iana::{Nsec3HashAlg, Rtype};
+use crate::master::scan::{CharSource, Scan, Scanner, ScanError, SyntaxError};
+use crate::utils::base32;
 use super::rfc4034::{RtypeBitmap, RtypeBitmapError};
 
 
@@ -72,10 +72,13 @@ impl Nsec3 {
 
 //--- ParseAll, Compose, Compress
 
-impl ParseAll for Nsec3 {
+impl ParseAll<Bytes> for Nsec3 {
     type Err = ParseNsec3Error;
 
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+    fn parse_all(
+        parser: &mut Parser<Bytes>,
+        len: usize
+    ) -> Result<Self, Self::Err> {
         if len < 6 {
             return Err(ShortBuf.into())
         }
@@ -121,7 +124,7 @@ impl Compress for Nsec3 {
 }
 
 
-//------------ Scan and Display ----------------------------------------------
+//--- Scan and Display
 
 impl Scan for Nsec3 {
     fn scan<C: CharSource>(
@@ -216,10 +219,10 @@ impl Nsec3param {
 
 //--- Parse, ParseAll, Compose, Compres
 
-impl Parse for Nsec3param {
+impl Parse<Bytes> for Nsec3param {
     type Err = ShortBuf;
 
-    fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
+    fn parse(parser: &mut Parser<Bytes>) -> Result<Self, Self::Err> {
         Ok(Self::new(
             Nsec3HashAlg::parse(parser)?,
             u8::parse(parser)?,
@@ -228,16 +231,19 @@ impl Parse for Nsec3param {
         ))
     }
 
-    fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
+    fn skip(parser: &mut Parser<Bytes>) -> Result<(), Self::Err> {
         parser.advance(4)?;
         CharStr::skip(parser)
     }
 }
 
-impl ParseAll for Nsec3param {
+impl ParseAll<Bytes> for Nsec3param {
     type Err = ParseAllError;
 
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+    fn parse_all(
+        parser: &mut Parser<Bytes>,
+        len: usize
+    ) -> Result<Self, Self::Err> {
         if len < 5 {
             return Err(ParseAllError::ShortField)
         }

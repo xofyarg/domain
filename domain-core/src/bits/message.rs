@@ -15,11 +15,14 @@
 use std::{mem, ops};
 use std::marker::PhantomData;
 use bytes::Bytes;
-use ::iana::{Rcode, Rtype};
-use ::rdata::Cname;
-use super::message_builder::{MessageBuilder, AdditionalBuilder, RecordSectionBuilder};
+use crate::iana::{Rcode, Rtype};
+use crate::rdata::Cname;
+use super::message_builder::{
+    MessageBuilder, AdditionalBuilder, RecordSectionBuilder
+};
 use super::header::{Header, HeaderCounts, HeaderSection};
 use super::name::{ParsedDname, ParsedDnameError, ToDname};
+use super::octets::Octets;
 use super::parse::{Parse, Parser, ShortBuf};
 use super::question::Question;
 use super::rdata::{ParseRecordData, RecordData};
@@ -145,48 +148,62 @@ use super::record::{ParsedRecord, Record, RecordParseError};
 /// [rdata]: ../../rdata/index.html
 /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
 #[derive(Clone, Debug)]
-pub struct Message {
-    bytes:Bytes,
+pub struct Message<O=Bytes> {
+    octets: O,
 }
 
 /// # Creation and Conversion
 ///
-impl Message {
-    /// Creates a message from a bytes value.
+impl<O> Message<O> {
+    /// Creates a message from a octets.
     ///
     /// This fails if the slice is too short to even contain a complete
     /// header section.  No further checks are done, though, so if this
     /// function returns `Ok`, the message may still be broken with other
     /// methods returning `Err(_)`.
-    pub fn from_bytes(bytes: Bytes) -> Result<Self, ShortBuf> {
-        if bytes.len() < mem::size_of::<HeaderSection>() {
+    pub fn from_octets(octets: O) -> Result<Self, ShortBuf>
+    where O: Octets {
+        if octets.len() < mem::size_of::<HeaderSection>() {
             Err(ShortBuf)
         }
         else {
-            Ok(Message { bytes })
+            Ok(Message { octets })
         }
     }
 
     /// Creates a message from a bytes value without checking.
-    pub(super) unsafe fn from_bytes_unchecked(bytes: Bytes) -> Self {
-        Message { bytes }
+    pub(super) unsafe fn from_octets_unchecked(octets: O) -> Self {
+        Message { octets }
+    }
+
+    /// Returns a reference to the underlying bytes value.
+    pub fn as_octets(&self) -> &O {
+        &self.octets
+    }
+
+    /// Returns a reference to the underlying byte slice.
+    pub fn as_slice(&self) -> &[u8]
+    where O: Octets {
+        self.octets.as_ref()
+    }
+}
+
+impl Message<Bytes> {
+    /// Creates a message from a bytes value.
+    pub fn from_bytes(bytes: Bytes) -> Result<Self, ShortBuf> {
+        Self::from_octets(bytes)
     }
 
     /// Returns a reference to the underlying bytes value.
     pub fn as_bytes(&self) -> &Bytes {
-        &self.bytes
-    }
-
-    /// Returns a reference to the underlying byte slice.
-    pub fn as_slice(&self) -> &[u8] {
-        self.bytes.as_ref()
+        self.as_octets()
     }
 }
 
 
 /// # Header Section
 ///
-impl Message {
+impl<O: Octets> Message<O> {
     /// Returns a reference to the message header.
     pub fn header(&self) -> &Header {
         Header::for_message_slice(self.as_slice())
@@ -211,49 +228,49 @@ impl Message {
 
 /// # Sections
 ///
-impl Message {
+impl<O: Octets> Message<O> {
     /// Returns the question section.
-    pub fn question(&self) -> QuestionSection {
-        QuestionSection::new(self.bytes.clone())
+    pub fn question(&self) -> QuestionSection<O> {
+        QuestionSection::new(self.octets.clone())
     }
 
     /// Returns the zone section of an UPDATE message.
     ///
     /// This is identical to `self.question()`.
-    pub fn zone(&self) -> QuestionSection { self.question() }
+    pub fn zone(&self) -> QuestionSection<O> { self.question() }
 
     /// Returns the answer section.
-    pub fn answer(&self) -> Result<RecordSection, ParsedDnameError> {
+    pub fn answer(&self) -> Result<RecordSection<O>, ParsedDnameError> {
         Ok(self.question().next_section()?)
     }
 
     /// Returns the prerequisite section of an UPDATE message.
     ///
     /// This is identical to `self.answer()`.
-    pub fn prerequisite(&self) -> Result<RecordSection, ParsedDnameError> {
+    pub fn prerequisite(&self) -> Result<RecordSection<O>, ParsedDnameError> {
         self.answer()
     }
 
     /// Returns the authority section.
-    pub fn authority(&self) -> Result<RecordSection, ParsedDnameError> {
+    pub fn authority(&self) -> Result<RecordSection<O>, ParsedDnameError> {
         Ok(self.answer()?.next_section()?.unwrap())
     }
 
     /// Returns the update section of an UPDATE message.
     ///
     /// This is identical to `self.authority()`.
-    pub fn update(&self) -> Result<RecordSection, ParsedDnameError> {
+    pub fn update(&self) -> Result<RecordSection<O>, ParsedDnameError> {
         self.authority()
     }
 
     /// Returns the additional section.
-    pub fn additional(&self) -> Result<RecordSection, ParsedDnameError> {
+    pub fn additional(&self) -> Result<RecordSection<O>, ParsedDnameError> {
         Ok(self.authority()?.next_section()?.unwrap())
     }
 
     /// Returns all four sections in one fell swoop.
-    pub fn sections(&self) -> Result<(QuestionSection, RecordSection,
-                                      RecordSection, RecordSection),
+    pub fn sections(&self) -> Result<(QuestionSection<O>, RecordSection<O>,
+                                      RecordSection<O>, RecordSection<O>),
                                      ParsedDnameError> {
         let question = self.question();
         let answer = question.clone().next_section()?;
@@ -263,7 +280,7 @@ impl Message {
     }
 
     /// Returns record iterator for all sections
-    pub fn iter(&self) -> MessageIterator {
+    pub fn iter(&self) -> MessageIterator<O> {
         match self.answer() {
             Ok(section) => MessageIterator { inner: Some(section) },
             Err(_) => MessageIterator { inner: None },
@@ -272,20 +289,31 @@ impl Message {
 
     /// Copy records from message into the target message builder.
     ///
-    /// The method uses `op` to process records from all packet sections before inserting,
-    /// caller can use this closure to filter or manipulate records before inserting.
-    pub fn copy_records<N, D, R, F>(&self, target: MessageBuilder, op: F) -> Result<AdditionalBuilder, ParsedDnameError>
-    where N: ToDname, D: RecordData, R: Into<Record<N, D>>, F: FnMut(Result<ParsedRecord, ParsedDnameError>) -> Option<R> + Copy
+    /// The method uses `op` to process records from all packet sections
+    /// before inserting, caller can use this closure to filter or manipulate
+    /// records before inserting.
+    pub fn copy_records<N, D, R, F>(
+        &self,
+        target: MessageBuilder,
+        op: F
+    ) -> Result<AdditionalBuilder, ParsedDnameError>
+    where
+        N: ToDname,
+        D: RecordData,
+        R: Into<Record<N, D>>,
+        F: FnMut(Result<ParsedRecord<O>, ParsedDnameError>) -> Option<R> + Copy
     {
         // Copy answer, authority, and additional records.
         let mut target = target.answer();
         self.answer()?.filter_map(op).for_each(|rr| target.push(rr).unwrap());
 
         let mut target = target.authority();
-        self.authority()?.filter_map(op).for_each(|rr| target.push(rr).unwrap());
+        self.authority()?.filter_map(op)
+            .for_each(|rr| target.push(rr).unwrap());
 
         let mut target = target.additional();
-        self.additional()?.filter_map(op).for_each(|rr| target.push(rr).unwrap());
+        self.additional()?.filter_map(op).
+            for_each(|rr| target.push(rr).unwrap());
 
         Ok(target)
     }
@@ -294,27 +322,30 @@ impl Message {
 
 /// # Helpers for Common Tasks
 ///
-impl Message {
+impl<O: Octets> Message<O> {
     /// Returns whether this is the answer to some other message.
     ///
     /// The method checks whether the ID fields of the headers are the same,
     /// whether the QR flag is set in this message, and whether the questions
     /// are the same.
-    pub fn is_answer(&self, query: &Message) -> bool {
+    pub fn is_answer<P: Octets>(&self, query: &Message<P>) -> bool {
         if !self.header().qr()
                 || self.header().id() != query.header().id()
                 || self.header_counts().qdcount()
-                        != query.header_counts().qdcount() {
+                        != query.header_counts().qdcount()
+        {
             false
         }
-        else { self.question().eq(query.question()) }
+        else {
+            self.question() == query.question()
+        }
     }
 
     /// Returns the first question, if there is any.
     ///
     /// The method will return `None` both if there are no questions or if
     /// parsing fails.
-    pub fn first_question(&self) -> Option<Question<ParsedDname>> {
+    pub fn first_question(&self) -> Option<Question<ParsedDname<O>>> {
         match self.question().next() {
             None | Some(Err(..)) => None,
             Some(Ok(question)) => Some(question)
@@ -327,7 +358,7 @@ impl Message {
     }
 
     /// Returns whether the message contains answers of a given type.
-    pub fn contains_answer<D: ParseRecordData>(&self) -> bool {
+    pub fn contains_answer<D: ParseRecordData<O>>(&self) -> bool {
         let answer = match self.answer() {
             Ok(answer) => answer,
             Err(..) => return false
@@ -340,14 +371,14 @@ impl Message {
     /// Returns `None` if either the message doesn’t have a question or there
     /// was a parse error. Otherwise starts with the question’s name,
     /// follows any CNAME trail and returns the name answers should be for.
-    pub fn canonical_name(&self) -> Option<ParsedDname> {
+    pub fn canonical_name(&self) -> Option<ParsedDname<O>> {
         let question = match self.first_question() {
             None => return None,
             Some(question) => question
         };
         let mut name = question.qname().clone();
         let answer = match self.answer() {
-            Ok(answer) => answer.limit_to::<Cname<ParsedDname>>(),
+            Ok(answer) => answer.limit_to::<Cname<ParsedDname<O>>>(),
             Err(_) => return None,
         };
 
@@ -376,40 +407,40 @@ impl Message {
 
 //--- Deref and AsRef
 
-impl ops::Deref for Message {
-    type Target = Bytes;
+impl<O> ops::Deref for Message<O> {
+    type Target = O;
 
     fn deref(&self) -> &Self::Target {
-        self.as_bytes()
+        self.as_octets()
     }
 }
 
-impl AsRef<Message> for Message {
-    fn as_ref(&self) -> &Message {
+impl<O> AsRef<Message<O>> for Message<O> {
+    fn as_ref(&self) -> &Message<O> {
         self
     }
 }
 
-impl AsRef<Bytes> for Message {
-    fn as_ref(&self) -> &Bytes {
-        self.as_bytes()
+impl<O> AsRef<O> for Message<O> {
+    fn as_ref(&self) -> &O {
+        self.as_octets()
     }
 }
 
-impl AsRef<[u8]> for Message {
+impl<O: Octets> AsRef<[u8]> for Message<O> {
     fn as_ref(&self) -> &[u8] {
         self.as_slice()
     }
 }
 
-//--- Iterator
+//------------ MessageIterator -----------------------------------------------
 
-pub struct MessageIterator {
-    inner: Option<RecordSection>,
+pub struct MessageIterator<O> {
+    inner: Option<RecordSection<O>>,
 }
 
-impl Iterator for MessageIterator {
-    type Item = (Result<ParsedRecord, ParsedDnameError>, Section);
+impl<O: Octets> Iterator for MessageIterator<O> {
+    type Item = (Result<ParsedRecord<O>, ParsedDnameError>, Section);
 
     fn next(&mut self) -> Option<Self::Item> {
         // Try to get next record from current section
@@ -449,9 +480,9 @@ impl Iterator for MessageIterator {
 /// [`answer`]: #method.answer
 /// [`next_section`]: #method.next_section
 #[derive(Clone, Debug)]
-pub struct QuestionSection {
+pub struct QuestionSection<O> {
     /// The parser for generating the questions.
-    parser: Parser,
+    parser: Parser<O>,
 
     /// The remaining number of questions.
     ///
@@ -461,10 +492,10 @@ pub struct QuestionSection {
     count: Result<u16, ParsedDnameError>
 }
 
-impl QuestionSection {
+impl<O: Octets> QuestionSection<O> {
     /// Creates a new question section from a bytes value.
-    fn new(bytes: Bytes) -> Self {
-        let mut parser = Parser::from_bytes(bytes);
+    fn new(octets: O) -> Self {
+        let mut parser = Parser::from_octets(octets);
         parser.advance(mem::size_of::<HeaderSection>()).unwrap();
         QuestionSection {
             count: Ok(HeaderCounts::for_message_slice(
@@ -473,14 +504,16 @@ impl QuestionSection {
             parser,
         }
     }
+}
 
+impl<O: Octets> QuestionSection<O> {
     /// Proceeds to the answer section.
     ///
     /// Skips over any remaining questions and then converts itself into
     /// the first [`RecordSection`].
     ///
     /// [`RecordSection`]: struct.RecordSection.html
-    pub fn answer(mut self) -> Result<RecordSection, ParsedDnameError> {
+    pub fn answer(mut self) -> Result<RecordSection<O>, ParsedDnameError> {
         // XXX Use Parser::skip here.
         for question in &mut self {
             let _ = question?;
@@ -496,7 +529,7 @@ impl QuestionSection {
     /// This is an alias for the [`answer`] method.
     ///
     /// [`answer`]: #method.answer
-    pub fn next_section(self) -> Result<RecordSection, ParsedDnameError> {
+    pub fn next_section(self) -> Result<RecordSection<O>, ParsedDnameError> {
         self.answer()
     }
 }
@@ -504,8 +537,8 @@ impl QuestionSection {
 
 //--- Iterator
 
-impl Iterator for QuestionSection {
-    type Item = Result<Question<ParsedDname>, ParsedDnameError>;
+impl<O: Octets> Iterator for QuestionSection<O> {
+    type Item = Result<Question<ParsedDname<O>>, ParsedDnameError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.count {
@@ -523,6 +556,31 @@ impl Iterator for QuestionSection {
             }
             _ => None
         }
+    }
+}
+
+
+//--- PartialEq
+
+impl<O, P> PartialEq<QuestionSection<P>> for QuestionSection<O>
+where O: Octets, P: Octets {
+    fn eq(&self, other: &QuestionSection<P>) -> bool {
+        for sitem in self.clone() {
+            let sitem = match sitem {
+                Ok(sitem) => sitem,
+                Err(_) => return false
+            };
+            for oitem in other.clone() {
+                let oitem = match oitem {
+                    Ok(oitem) => oitem,
+                    Err(_) => return false
+                };
+                if sitem != oitem {
+                    return false
+                }
+            }
+        }
+        true
     }
 }
 
@@ -590,10 +648,10 @@ impl Section {
 /// [`Record`]: ../record/struct.Record.html
 /// [`RecordIter`]: struct.RecordIter.html
 /// [`into_record`]: ../record/struct.ParsedRecord.html#method.into_record
-#[derive(Clone, Debug)]
-pub struct RecordSection {
+#[derive(Clone)]
+pub struct RecordSection<O> {
     /// The parser for generating the records.
-    parser: Parser,
+    parser: Parser<O>,
 
     /// Which section are we, really?
     section: Section,
@@ -607,12 +665,12 @@ pub struct RecordSection {
 }
 
 
-impl RecordSection {
+impl<O: Octets> RecordSection<O> {
     /// Creates a new section from a parser.
     ///
     /// The parser must only wrap the bytes of the message and it must be
     /// positioned at the beginning of the section.
-    fn new(parser: Parser, section: Section) ->  Self {
+    fn new(parser: Parser<O>, section: Section) ->  Self {
         RecordSection {
             count: Ok(section.count(
                 *HeaderCounts::for_message_slice(parser.as_slice())
@@ -637,7 +695,7 @@ impl RecordSection {
     /// [`ParseRecordData`]: ../rdata/trait.ParseRecordData.html
     /// [`ParsedDname`]: ../name/struct.ParsedDname.html
     /// [domain::rdata::parsed]: ../../rdata/parsed/index.html
-    pub fn limit_to<D: ParseRecordData>(self) -> RecordIter<D> {
+    pub fn limit_to<D: ParseRecordData<O>>(self) -> RecordIter<O, D> {
         RecordIter::new(self)
     }
 
@@ -665,8 +723,8 @@ impl RecordSection {
 
 //--- Iterator
 
-impl Iterator for RecordSection {
-    type Item = Result<ParsedRecord, ParsedDnameError>;
+impl<O: Octets> Iterator for RecordSection<O> {
+    type Item = Result<ParsedRecord<O>, ParsedDnameError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.count {
@@ -705,15 +763,15 @@ impl Iterator for RecordSection {
 ///
 /// [`next_section`]: #method.next_section
 /// [`RecordSection::limit_to`]: struct.RecordSection.html#method.limit_to
-#[derive(Clone, Debug)]
-pub struct RecordIter<D: ParseRecordData> {
-    section: RecordSection,
+#[derive(Clone)]
+pub struct RecordIter<O, D: ParseRecordData<O>> {
+    section: RecordSection<O>,
     marker: PhantomData<D>
 }
 
-impl<D: ParseRecordData> RecordIter<D> {
+impl<O, D: ParseRecordData<O>> RecordIter<O, D> {
     /// Creates a new limited record iterator from the given section.
-    fn new(section: RecordSection) -> Self {
+    fn new(section: RecordSection<O>) -> Self {
         RecordIter { section, marker: PhantomData }
     }
 
@@ -722,16 +780,19 @@ impl<D: ParseRecordData> RecordIter<D> {
     /// The complete iterator will continue right after the last record
     /// returned by `self`. It will *not* restart from the beginning of the
     /// section.
-    pub fn unwrap(self) -> RecordSection {
+    pub fn unwrap(self) -> RecordSection<O> {
         self.section
     }
+}
 
+impl<O: Octets, D: ParseRecordData<O>> RecordIter<O, D> {
     /// Proceeds to the next section if there is one.
     ///
     /// Returns an error if parsing has failed and the message is unusable
     /// now.
-    pub fn next_section(self)
-                        -> Result<Option<RecordSection>, ParsedDnameError> {
+    pub fn next_section(
+        self
+    ) -> Result<Option<RecordSection<O>>, ParsedDnameError> {
         self.section.next_section()
     }
 }
@@ -739,8 +800,8 @@ impl<D: ParseRecordData> RecordIter<D> {
 
 //--- Iterator
 
-impl<D: ParseRecordData> Iterator for RecordIter<D> {
-    type Item = Result<Record<ParsedDname, D>,
+impl<O: Octets, D: ParseRecordData<O>> Iterator for RecordIter<O, D> {
+    type Item = Result<Record<ParsedDname<O>, D>,
                        RecordParseError<ParsedDnameError, D::Err>>;
 
     fn next(&mut self) -> Option<Self::Item> {

@@ -4,8 +4,9 @@ use std::cmp;
 use std::fmt;
 use std::hash;
 use bytes::BufMut;
-use ::bits::compose::Compose;
-use ::bits::parse::{Parse, Parser, ShortBuf};
+use crate::bits::compose::Compose;
+use crate::bits::octets::Octets;
+use crate::bits::parse::{Parse, Parser, ShortBuf};
 
 
 //------------ OptionCode ---------------------------------------------------
@@ -91,14 +92,14 @@ impl OptionCode {
 
 //--- Parse and Compose
 
-impl Parse for OptionCode {
+impl<O: Octets> Parse<O> for OptionCode {
     type Err = ShortBuf;
 
-    fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
+    fn parse(parser: &mut Parser<O>) -> Result<Self, Self::Err> {
         u16::parse(parser).map(OptionCode::from_int)
     }
 
-    fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
+    fn skip(parser: &mut Parser<O>) -> Result<(), Self::Err> {
         u16::skip(parser)
     }
 }
