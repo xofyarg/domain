@@ -15,6 +15,7 @@ name = "domain_resolv"
 path = "src/lib.rs"
 
 [dependencies]
+bytes          = "^0.4"
 futures        = "^0.1"
 rand           = "^0.6"
 tokio          = "^0.1"

@@ -32,6 +32,7 @@
 //! [`StubResolver`]: stub/struct.StubResolver.html
 #![allow(unknown_lints)] // hide clippy-related #allows on stable. 
 
+extern crate bytes;
 extern crate domain_core;
 #[macro_use] extern crate futures;
 extern crate rand;

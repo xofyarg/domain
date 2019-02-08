@@ -3,6 +3,7 @@
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;
+use bytes::Bytes;
 use futures::{Async, Future, Poll};
 use domain_core::bits::message::RecordIter;
 use domain_core::bits::name::{Dname, DnameBuilder, ParsedDname};
@@ -88,7 +89,7 @@ impl<'a, R: Resolver> IntoIterator for &'a FoundAddrs<R> {
 /// An iterator over host names returned by address lookup.
 pub struct FoundAddrsIter {
     name: Option<ParsedDname>,
-    answer: Option<RecordIter<Ptr>>,
+    answer: Option<RecordIter<Bytes, Ptr>>,
 }
 
 impl Iterator for FoundAddrsIter {
