@@ -51,6 +51,10 @@ impl Dnskey {
         self.flags
     }
 
+    pub fn set_flags(&mut self, flags: u16) {
+        self.flags = flags
+    }
+
     pub fn protocol(&self) -> u8 {
         self.protocol
     }
@@ -1042,7 +1046,7 @@ impl<'a> RtypeBitmapIter<'a> {
     fn advance(&mut self) {
         loop {
             self.bit += 1;
-            if self.bit == 7 {
+            if self.bit == 8 {
                 self.bit = 0;
                 self.octet += 1;
                 if self.octet == self.len {
@@ -1052,6 +1056,7 @@ impl<'a> RtypeBitmapIter<'a> {
                     }
                     self.block = u16::from(self.data[0]) << 8;
                     self.len = self.data[1] as usize;
+                    self.data = &self.data[2..];
                     self.octet = 0;
                 }
             }
@@ -1271,5 +1276,21 @@ mod test {
         assert_eq!(dnskey.is_zsk(), true);
         assert_eq!(dnskey.is_secure_entry_point(), true);
         assert_eq!(dnskey.is_revoked(), false);
+    }
+
+    #[test]
+    fn rtype_bitmap_display() {
+        assert_eq!(
+            format!("{}",
+                unwrap!(RtypeBitmap::from_bytes(Bytes::from(
+                   &b"\x00\x06\x40\x01\x00\x00\x00\x03\
+                     \x04\x1b\x00\x00\x00\x00\x00\x00\
+                     \x00\x00\x00\x00\x00\x00\x00\x00\
+                     \x00\x00\x00\x00\x00\x00\x00\x00\
+                     \x00\x00\x00\x00\x20"[..]
+                )))
+            ),
+            "A MX RRSIG NSEC TYPE1234"
+        );
     }
 }

@@ -1,29 +1,30 @@
 //! Signs a zone file.
 
 use std::io;
+use std::convert::TryFrom;
 use std::fs::File;
 use domain_core::{Dname, Record, Serial};
 use domain_core::rdata::MasterRecordData;
 use domain_core::master::reader::{Reader, ReaderItem};
-use domain_sign::ring;
+use domain_sign::openssl;
+use domain_sign::key::StoredKey;
 use domain_sign::sign::{FamilyName, SortedRecords};
-use ::ring::rand::SystemRandom;
 use unwrap::unwrap;
 
 
 fn main() {
     let mut args = std::env::args();
     let _ = unwrap!(args.next());
-    let infile = match args.next() {
-        Some(infile) => infile,
-        None => {
-            eprintln!("Usage: signzone <infile> [<outfile>]");
+    let (keyfile, infile) = match (args.next(), args.next()) {
+        (Some(keyfile), Some(infile)) => (keyfile, infile),
+        _ => {
+            eprintln!("Usage: signzone <keyfile> <infile> [<outfile>]");
             std::process::exit(1)
         }
     };
     let outfile = args.next();
 
-    if let Err(err) = sign_zone(infile, outfile) {
+    if let Err(err) = sign_zone(keyfile, infile, outfile) {
         eprintln!("{}", err);
         std::process::exit(1)
     }
@@ -34,21 +35,14 @@ fn main() {
 type Records = SortedRecords<Dname, MasterRecordData<Dname>>;
 
 
-fn sign_zone(infile: String, outfile: Option<String>) -> Result<(), io::Error> {
-    let rng = SystemRandom::new();
-    let key = match ring::Key::throwaway_13(256, &rng) {
-        Ok(key) => key,
-        Err(_) => {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                "failed to create key"
-            ))
-        }
-    };
+fn sign_zone(
+    keyfile: String, infile: String, outfile: Option<String>
+) -> Result<(), io::Error> {
+    let mut key = openssl::Key::try_from(StoredKey::load(&keyfile)?)?;
+    key.set_flags(257);
+
     let mut records = load_zone(infile)?;
     let (apex, ttl) = find_apex(&records)?;
-    let nsecs = records.nsecs(&apex, ttl);
-    records.extend(nsecs.into_iter().map(Record::from_record));
     match apex.dnskey(ttl, &key) {
         Ok(record) => {
             let _ = records.insert(Record::from_record(record));
@@ -60,6 +54,8 @@ fn sign_zone(infile: String, outfile: Option<String>) -> Result<(), io::Error> {
             ))
         }
     }
+    let nsecs = records.nsecs(&apex, ttl);
+    records.extend(nsecs.into_iter().map(Record::from_record));
     let inception = Serial::now().sub(10);
     let expiration = inception.add(2592000); // XXX 30 days
     let rrsigs = match records.sign(&apex, expiration, inception, &key) {

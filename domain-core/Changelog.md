@@ -21,20 +21,23 @@ New
   names from well-known sequences. [(#31)]
 * `compose::Compose::compose_canonical` for composing the canonical form
   for DNSSEC signing. It has a default implementation just doing `compose`
-  and has been implemented for all relevant types. [(#XX)]
+  and has been implemented for all relevant types. [(#28)]
 * `cmp::CanonicalOrd` for the ordering of record data and records for
   DNSSEC signing. Implemented for all relevant types. Also improved
   implementations of `PartialEq` and `PartialOrd` for types generic over
   domain name types to be generic over the other values domain name type.
-  [(#XX)]
-* `compose::BufMutExt` allowing to `put_slice_ascii_lowercase`. [(#XX)]
+  [(#28)]
+* `compose::BufMutExt` allowing to `put_slice_ascii_lowercase`. [(#28)]
 * Allow `serial::Serial` to be created from datetimes, provide a
-  constructor for `now` and add `sub`. [(#XX)]
+  constructor for `now` and add `sub`. [(#28)]
+* `utils::base64` can now decode into `Vec<u8>`. [(#XX)]
 
 Bug fixes
 
 * Do not compress the target of an SRV record’s data. [(#18)]
 * Fix `rdata::rfc4043::RtypeBitmapIter`. [(#XX)]
+* `FromStr` impl for some `iana` types always produced the `Int(_)`
+  variant. [(#XX)]
 
 Dependencies
 

@@ -1,18 +1,22 @@
 //! Decoding and encoding of Base64.
 
 use std::{error, fmt};
-use bytes::{BufMut, Bytes, BytesMut};
+use bytes::{BufMut, Bytes};
 use derive_more::Display;
 
 
 //------------ Convenience Functions -----------------------------------------
 
 pub fn decode(s: &str) -> Result<Bytes, DecodeError> {
+    decode_to_vec(s).map(Into::into)
+}
+
+pub fn decode_to_vec(s: &str) -> Result<Vec<u8>, DecodeError> {
     let mut decoder = Decoder::new();
     for ch in s.chars() {
         decoder.push(ch)?;
     }
-    decoder.finalize()
+    decoder.finalize_into_vec()
 }
 
 
@@ -73,7 +77,7 @@ pub struct Decoder {
     next: usize,
 
     /// The target or an error if something went wrong.
-    target: Result<BytesMut, DecodeError>,
+    target: Result<Vec<u8>, DecodeError>,
 }
 
 impl Decoder {
@@ -81,11 +85,15 @@ impl Decoder {
         Decoder {
             buf: [0; 4],
             next: 0,
-            target: Ok(BytesMut::new()),
+            target: Ok(Vec::new()),
         }
     }
 
     pub fn finalize(self) -> Result<Bytes, DecodeError> {
+        self.finalize_into_vec().map(Into::into)
+    }
+
+    pub fn finalize_into_vec(self) -> Result<Vec<u8>, DecodeError> {
         let (target, next) = (self.target, self.next);
         target.and_then(|bytes| {
             // next is either 0 or 0xF0 for a completed group.
@@ -93,7 +101,7 @@ impl Decoder {
                 Err(DecodeError::IncompleteInput)
             }
             else {
-                Ok(bytes.freeze())
+                Ok(bytes)
             }
         })
     }

@@ -211,6 +211,7 @@ impl<N, D> SortedRecords<N, D> {
 
             let mut bitmap = RtypeBitmap::builder();
             bitmap.add(Rtype::Rrsig); // Assume there’s gonna be an RRSIG.
+            bitmap.add(Rtype::Nsec); // ... and an NSEC, too.
             for rrset in family.rrsets() {
                 bitmap.add(rrset.rtype())
             }

@@ -301,7 +301,7 @@ macro_rules! int_enum_str_with_decimal {
                     Some(res) => Ok(res),
                     None => {
                         if let Ok(res) = $inttype::from_str_radix(s, 10) {
-                            Ok($ianatype::Int(res))
+                            Ok($ianatype::from_int(res))
                         }
                         else {
                             Err(FromStrError)
