@@ -1,14 +1,14 @@
 //! Signs a zone file.
 
 use std::io;
-use std::convert::TryFrom;
 use std::fs::File;
 use domain_core::{Dname, Record, Serial};
 use domain_core::rdata::MasterRecordData;
 use domain_core::master::reader::{Reader, ReaderItem};
-use domain_sign::openssl;
+use domain_sign::ring::Key;
 use domain_sign::key::StoredKey;
 use domain_sign::sign::{FamilyName, SortedRecords};
+use ring::rand::SystemRandom;
 use unwrap::unwrap;
 
 
@@ -38,7 +38,12 @@ type Records = SortedRecords<Dname, MasterRecordData<Dname>>;
 fn sign_zone(
     keyfile: String, infile: String, outfile: Option<String>
 ) -> Result<(), io::Error> {
-    let mut key = openssl::Key::try_from(StoredKey::load(&keyfile)?)?;
+    let random = SystemRandom::new();
+    let mut key = Key::from_stored(
+        StoredKey::load(&keyfile).map_err(|err| {
+            io::Error::new(io::ErrorKind::Other, err)
+        })?, &random
+    ).map_err(|err| io::Error::new(io::ErrorKind::Other, err))?;
     key.set_flags(257);
 
     let mut records = load_zone(infile)?;
@@ -56,8 +61,8 @@ fn sign_zone(
     }
     let nsecs = records.nsecs(&apex, ttl);
     records.extend(nsecs.into_iter().map(Record::from_record));
-    let inception = Serial::now().sub(10);
-    let expiration = inception.add(2592000); // XXX 30 days
+    let inception = Serial::now().sub(2 * 3600);
+    let expiration = inception.add(28 * 86400); // XXX 28 days
     let rrsigs = match records.sign(&apex, expiration, inception, &key) {
         Ok(rrsigs) => rrsigs,
         Err(_) => {
@@ -89,7 +94,7 @@ fn sign_zone(
                 let mut stdout = stdout.lock();
                 records.write(&mut stdout)?;
             }
-            println!("");
+            println!();
         }
     }
     //println!("{}", ds);

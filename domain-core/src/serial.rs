@@ -81,8 +81,8 @@ impl Serial {
         Serial(self.0.wrapping_sub(other))
     }
 
-    /// Scan a serial represention signature time values.
-    /// 
+    /// Scan a serial representing signature time values.
+    ///
     /// In RRSIG records, the expiration and inception time is given as
     /// serial values. Their master file format can either be the signature
     /// value or a specific date in `YYYYMMDDHHmmSS` format.

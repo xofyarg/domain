@@ -6,14 +6,17 @@ use bytes::Bytes;
 use domain_core::{Compose, ToDname};
 use domain_core::iana::{DigestAlg, SecAlg};
 use domain_core::rdata::{Ds, Dnskey};
-use openssl::bn::BigNum;
+use openssl::bn::{BigNum, BigNumContext};
+use openssl::ec::{EcGroup, EcKey, EcPoint, PointConversionForm};
+use openssl::ecdsa::EcdsaSig;
 use openssl::error::ErrorStack;
-use openssl::hash::MessageDigest;
+use openssl::hash::{MessageDigest, hash};
+use openssl::nid::Nid;
 use openssl::pkey::{PKey, Private};
 use openssl::sha::sha256;
 use openssl::sign::Signer as OpenSslSigner;
 use unwrap::unwrap;
-use crate::key::{NumString, SigningKey, StoredKey, RsaStoredKey};
+use crate::key::{EcStoredKey, NumString, SigningKey, RsaStoredKey, StoredKey};
 
 
 //------------ Key -----------------------------------------------------------
@@ -38,7 +41,7 @@ impl TryFrom<StoredKey> for Key {
     fn try_from(key: StoredKey) -> Result<Self, Self::Error> {
         match key {
             StoredKey::Rsa(rsa) => Self::try_from(rsa),
-            _ => unimplemented!()
+            StoredKey::Ec(ec) => Self::try_from(ec),
         }
     }
 }
@@ -82,6 +85,37 @@ impl TryFrom<RsaStoredKey> for Key {
     }
 }
 
+impl TryFrom<EcStoredKey> for Key {
+    type Error = ErrorStack;
+
+    fn try_from(key: EcStoredKey) -> Result<Self, Self::Error> {
+        match key.algorithm {
+            SecAlg::EcdsaP256Sha256 =>
+                ecdsa_try_from(key, Nid::X9_62_PRIME256V1),
+            SecAlg::EcdsaP384Sha384 =>
+                ecdsa_try_from(key, Nid::SECP384R1),
+            _ => unreachable!()
+        }
+    }
+}
+
+fn ecdsa_try_from(key: EcStoredKey, curve: Nid) -> Result<Key, ErrorStack> {
+    let mut ctx = BigNumContext::new()?;
+    let private = BigNum::try_from(key.private_key)?;
+    let group = EcGroup::from_curve_name(curve)?;
+    let mut public = EcPoint::new(&group)?;
+    public.mul_generator(&group, &private, &ctx)?;
+    let private = EcKey::from_private_components(&group, &private, &public)?;
+    let public = public.to_bytes(
+        &group, PointConversionForm::UNCOMPRESSED, &mut ctx
+    )?;
+    let public = Bytes::from(&public[1..]);
+    Ok(Key {
+        dnskey: Dnskey::new(256, 3, key.algorithm, public),
+        key: PKey::from_ec_key(private)?,
+    })
+}
+
 
 //--- SigningKey
 
@@ -106,11 +140,32 @@ impl SigningKey for Key {
     }
 
     fn sign(&self, data: &[u8]) -> Result<Bytes, Self::Error> {
+        use SecAlg::*;
+
+        match self.dnskey.algorithm() {
+            RsaSha1 | RsaSha1Nsec3Sha1 | RsaSha256 | RsaSha512 => {
+                self.sign_rsa(data)
+            }
+            EcdsaP256Sha256 => {
+                self.sign_ecdsa(data, MessageDigest::sha256(), 32)
+            }
+            EcdsaP384Sha384 => {
+                self.sign_ecdsa(data, MessageDigest::sha384(), 48)
+            }
+            _ => unreachable!()
+        }
+    }
+}
+
+impl Key {
+    fn sign_rsa(&self, data: &[u8]) -> Result<Bytes, ErrorStack> {
         let digest = match self.dnskey.algorithm() {
             SecAlg::RsaSha1 | SecAlg::RsaSha1Nsec3Sha1
                 => Some(MessageDigest::sha1()),
             SecAlg::RsaSha256 => Some(MessageDigest::sha256()),
             SecAlg::RsaSha512 => Some(MessageDigest::sha512()),
+            SecAlg::EcdsaP256Sha256 => Some(MessageDigest::sha256()),
+            SecAlg::EcdsaP384Sha384 => Some(MessageDigest::sha384()),
             _ => None,
         };
 
@@ -119,6 +174,25 @@ impl SigningKey for Key {
         )?;
         signer.update(data)?;
         signer.sign_to_vec().map(Into::into)
+    }
+
+    fn sign_ecdsa(
+        &self,
+        data: &[u8],
+        digest: MessageDigest,
+        part_len: usize
+    ) -> Result<Bytes, ErrorStack> {
+        let digest = hash(digest, data)?;
+        let sig = EcdsaSig::sign(&digest, self.key.ec_key()?.as_ref())?;
+        let mut res = vec![0u8; part_len * 2];
+        let r = sig.r().to_vec();
+        let r0 = unwrap!(part_len.checked_sub(r.len()));
+        &mut res[r0..part_len].copy_from_slice(&r);
+        let s = sig.s().to_vec();
+        let s0 = part_len + unwrap!(part_len.checked_sub(s.len()));
+        &mut res[s0..].copy_from_slice(&s);
+
+        Ok(res.into())
     }
 }
 
