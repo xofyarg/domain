@@ -9,22 +9,25 @@ New
 
 Bug Fixes
 
+* Correctly start Tokio runtime for `StubResolver::run`. ([#65])
+
 Dependencies
 
+[(#65)]: https://github.com/NLnetLabs/domain/pull/65
 
 
 ## 0.5.0
 
 Breaking Changes
 
-* Migrated to use async functions. This allowed the resolver to use
+* Migrated to use async functions. This allows the resolver to use
   regular references instead of hiding behind arcs. ([#43])
 
 Bug fixes
 
 * Fix a panic if the end of the server list is reached during a query.
   Reported by [@dvc94ch]. [(#14)]
-* Fix a panic when a server list is empty to begin with. (Fixes by
+* Fix a panic when a server list is empty to begin with. (Fixed by
   [@vendemiat] in [#26])
 
 Dependencies
