@@ -636,7 +636,7 @@ impl<T: CodeOptData + Compose> OptData for T {
     }
 }
 
-impl<Octets, T> ParseOptData<Octets> for T
+impl<Octets: AsRef<[u8]>, T> ParseOptData<Octets> for T
 where T: CodeOptData + Parse<Octets> + Compose + Sized {
     fn parse_option(
         code: OptionCode,
@@ -646,6 +646,7 @@ where T: CodeOptData + Parse<Octets> + Compose + Sized {
             Self::parse(parser).map(Some)
         }
         else {
+            parser.advance_to_end();
             Ok(None)
         }
     }
@@ -785,6 +786,7 @@ mod test {
     use std::vec::Vec;
     use crate::base::record::ParsedRecord;
     use super::*;
+    use crate::base::{MessageBuilder, opt};
 
     #[test]
     fn opt_record_header() {
@@ -804,6 +806,27 @@ mod test {
         assert_eq!(record.ext_rcode, OptRcode::BadVers.ext());
         assert_eq!(record.version(), 0xbd);
         assert!(record.dnssec_ok());
+    }
+
+    #[test]
+    fn opt_iter() {
+        // Push two options and check that both are parseable
+        let nsid = opt::Nsid::from_octets(&b"example"[..]);
+        let cookie = opt::Cookie::new(1234u64.to_be_bytes());
+        let msg = {
+            let mut mb = MessageBuilder::new_vec().additional();
+            mb.opt(|mb| {
+                mb.push(&nsid)?;
+                mb.push(&cookie)?;
+                Ok(())
+            }).unwrap();
+            mb.into_message()
+        };
+
+        // Parse both into specialized types
+        let opt = msg.opt().unwrap();
+        assert_eq!(Some(Ok(nsid)), opt.iter::<opt::Nsid<_>>().next());
+        assert_eq!(Some(Ok(cookie)), opt.iter::<opt::Cookie>().next());
     }
 }
 
