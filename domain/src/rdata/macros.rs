@@ -261,11 +261,19 @@ macro_rules! rdata_types {
 
         //--- RecordData and ParseRecordData
 
+        impl<'a, O, N> $crate::base::rdata::RecordData for &'a MasterRecordData<O, N>
+        where O: AsRef<[u8]>, N: $crate::base::name::ToDname
+        {
+            fn rtype(&self) -> $crate::base::iana::Rtype {
+                MasterRecordData::rtype(self)
+            }
+        }
+
         impl<O, N> $crate::base::rdata::RecordData for MasterRecordData<O, N>
         where O: AsRef<[u8]>, N: $crate::base::name::ToDname
         {
             fn rtype(&self) -> $crate::base::iana::Rtype {
-                self.rtype()
+                MasterRecordData::rtype(self)
             }
         }
 
@@ -372,7 +380,6 @@ macro_rules! rdata_types {
                 }
             }
         }
-
 
 
         //------------- AllRecordData ----------------------------------------
@@ -615,6 +622,13 @@ macro_rules! rdata_types {
         //--- RecordData and ParseRecordData
 
         impl<O, N> $crate::base::rdata::RecordData for AllRecordData<O, N>
+        where O: AsRef<[u8]>, N: $crate::base::name::ToDname {
+            fn rtype(&self) -> $crate::base::iana::Rtype {
+                self.rtype()
+            }
+        }
+
+        impl<'a, O, N> $crate::base::rdata::RecordData for &'a AllRecordData<O, N>
         where O: AsRef<[u8]>, N: $crate::base::name::ToDname {
             fn rtype(&self) -> $crate::base::iana::Rtype {
                 match *self {
